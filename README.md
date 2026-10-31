@@ -71,9 +71,9 @@ uvicorn app:app --reload
 You can test the dynamic query endpoint using `curl` to fetch live data directly through the backend:
 
 ```
-curl -X POST "http://127.0.0.1:8000/query" \
+curl -X POST "http://127.0.0.1:8000/spyrja_px_api" \
      -H "Content-Type: application/json" \
-     -d '{"prompt": "Get population statistics for municipalities in 2024"}'
+     -d '{"spurning": "Mannfjöldi árið 2024"}'
 ```
 
 ## 🛑 `.gitignore`
@@ -85,3 +85,4 @@ venv/
 __pycache__/
 *.pyc
 .env
+```
