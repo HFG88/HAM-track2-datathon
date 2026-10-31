@@ -1,8 +1,9 @@
 """Measure how often table_search finds the right table.
 
 Each question lists the table ids that are an acceptable answer. Run:
-    python eval_search.py           # summary
-    python eval_search.py -v        # also show the top 3 for every miss
+    python eval_search.py                  # compare bm25, vector and hybrid
+    python eval_search.py -v               # also show the top 3 for every miss
+    python eval_search.py -v --bm25        # only one mode
 """
 
 import sys
@@ -57,17 +58,22 @@ TEST_QUESTIONS = {
         ["IDN03001.px"],
     "Hver er raforkunotkun eftir atvinnugreinum?":
         ["UMH40210.px", "IDN02104.px"],
+    # Everyday wording that shares few words with the table titles.
+    "Hvað eru margir án vinnu?":
+        ["VIN00920.px", "VIN00921.px", "VIN00910.px", "VIN00001.px", "VIN00002.px", "VIN00003.px"],
+    "Hvað komu margir ferðamenn til landsins?":
+        ["SAM02001.px", "FER90001.px", "SAM08006.px"],
 }
 
 
-def evaluate(verbose=False, k=5):
+def evaluate(mode="hybrid", verbose=False, k=5):
     top1 = topk = 0
     misses = []
     start = time.time()
 
     for question, expected in TEST_QUESTIONS.items():
         try:
-            results = search_tables(normalize_question(question), limit=k)
+            results = search_tables(normalize_question(question), limit=k, mode=mode)
         except QuestionError:
             results = []
         ids = [table["id"] for table, _ in results]
@@ -82,7 +88,7 @@ def evaluate(verbose=False, k=5):
 
     total = len(TEST_QUESTIONS)
     seconds = (time.time() - start) / total
-    print(f"Top 1: {top1}/{total}   Top {k}: {topk}/{total}   ({seconds:.2f} s per question)")
+    print(f"{mode:7}  Top 1: {top1}/{total}   Top {k}: {topk}/{total}   ({seconds:.2f} s per question)")
 
     if verbose:
         for question, rank, results in misses:
@@ -95,4 +101,6 @@ def evaluate(verbose=False, k=5):
 
 
 if __name__ == "__main__":
-    evaluate(verbose="-v" in sys.argv)
+    modes = [m[2:] for m in sys.argv[1:] if m in ("--bm25", "--vector", "--hybrid")]
+    for mode in modes or ["bm25", "vector", "hybrid"]:
+        evaluate(mode, verbose="-v" in sys.argv)

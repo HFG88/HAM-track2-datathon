@@ -1,9 +1,18 @@
 """Find the Hagstofa tables that best match a normalised question.
 
-BM25 over character 4-grams, so different Icelandic word endings and compounds
-still match ("atvinnulausra" ~ "atvinnuleysi"). Each table is indexed in four
-fields with different weights: title, folder path, variable names and value
-labels. Input is the dict from normalize.normalize_question().
+Two searches, which can be combined with reciprocal rank fusion (RRF).
+BM25 is the default: on eval_search.py it beats both vectors and hybrid.
+
+- BM25 over character 4-grams, so different Icelandic word endings and
+  compounds still match ("atvinnulausra" ~ "atvinnuleysi"). Each table is
+  indexed in four fields with different weights: title, folder path, variable
+  names and value labels.
+- Vector search: each table's title, folders and variable names are embedded
+  with a multilingual model (bge-m3 via Ollama), and compared with the
+  embedded question. This catches meaning that shares no letters with the
+  title. Vectors are cached in local/table-vectors.npz.
+
+Input is the dict from normalize.normalize_question().
 """
 
 import json
@@ -16,10 +25,24 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote
 
+import numpy as np
+import requests
+
 from normalize import QuestionError, clean, normalize_question, tokenize
 
 LOCAL = Path(__file__).parent / "local"
 CATALOG_PATHS = [LOCAL / "catalog-enriched.json", LOCAL / "catalog-full.json"]
+
+VECTORS_PATH = LOCAL / "table-vectors.npz"
+OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
+EMBED_MODEL = "bge-m3"
+EMBED_BATCH = 32
+
+# RRF: each search adds 1 / (RRF_K + rank). Tables found by both rise to the top.
+RRF_K = 60
+CANDIDATES = 50
+# How much vector search counts in hybrid compared to BM25 (1.0).
+VECTOR_WEIGHT = 0.25
 
 NGRAM = 4
 K1 = 1.2
@@ -170,20 +193,103 @@ def query_terms(normalized):
     return list(dict.fromkeys(t for t in terms if not t.isdigit()))
 
 
+def embed(texts):
+    """Embed a list of texts with Ollama. Returns an array of unit vectors."""
+    vectors = []
+    for i in range(0, len(texts), EMBED_BATCH):
+        response = requests.post(
+            OLLAMA_EMBED_URL,
+            json={"model": EMBED_MODEL, "input": texts[i:i + EMBED_BATCH]},
+            timeout=300,
+        )
+        response.raise_for_status()
+        vectors.extend(response.json()["embeddings"])
+    vectors = np.array(vectors, dtype=np.float32)
+    return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+
+
+def table_text(table):
+    """The text that represents a table in vector search."""
+    fields = table_fields(table)
+    return f"{table['title']}. {fields['path']}. {fields['variables']}"
+
+
+class VectorIndex:
+    def __init__(self, tables, path=VECTORS_PATH):
+        self.tables = tables
+        urls = [t["url"] for t in tables]
+
+        if path.exists():
+            cached = np.load(path)
+            if list(cached["urls"]) == urls and str(cached["model"]) == EMBED_MODEL:
+                self.vectors = cached["vectors"]
+                return
+
+        print(f"Embedding {len(tables)} tables with {EMBED_MODEL} (one-time)...", file=sys.stderr)
+        self.vectors = embed([table_text(t) for t in tables])
+        np.savez(path, vectors=self.vectors, urls=np.array(urls), model=EMBED_MODEL)
+
+    def search(self, question, limit=10):
+        query = embed([question])[0]
+        similarity = self.vectors @ query
+        best = np.argsort(-similarity)[:limit]
+        return [(self.tables[i], round(float(similarity[i]), 3)) for i in best]
+
+
 @lru_cache(maxsize=1)
-def default_index():
+def load_tables():
     path = next((p for p in CATALOG_PATHS if p.exists()), None)
     if path is None:
         raise FileNotFoundError("No catalog in local/. Run catalog.py and enrich_catalog.py first.")
-    return TableIndex(json.loads(path.read_text(encoding="utf-8")))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-def search_tables(normalized, limit=10):
-    return default_index().search(normalized, limit)
+@lru_cache(maxsize=1)
+def default_index():
+    return TableIndex(load_tables())
+
+
+@lru_cache(maxsize=1)
+def default_vectors():
+    return VectorIndex(load_tables())
+
+
+def rrf(rankings, weights, limit=10):
+    """Combine ranked lists of (table, score) by weighted reciprocal rank fusion."""
+    scores = defaultdict(float)
+    tables = {}
+    for ranking, weight in zip(rankings, weights):
+        for rank, (table, _) in enumerate(ranking, start=1):
+            scores[table["url"]] += weight / (RRF_K + rank)
+            tables[table["url"]] = table
+    best = sorted(scores.items(), key=lambda item: -item[1])[:limit]
+    return [(tables[url], round(score, 4)) for url, score in best]
+
+
+def search_tables(normalized, limit=10, mode="bm25"):
+    """mode: "bm25", "vector" or "hybrid" (both, combined with RRF)."""
+    if mode == "bm25":
+        return default_index().search(normalized, limit)
+
+    try:
+        vector_results = default_vectors().search(normalized["original"], CANDIDATES)
+    except requests.RequestException as error:
+        # Ollama is down: fall back to BM25 alone.
+        print(f"Vector search unavailable ({error}), using BM25 only.", file=sys.stderr)
+        return default_index().search(normalized, limit)
+
+    if mode == "vector":
+        return vector_results[:limit]
+    bm25_results = default_index().search(normalized, CANDIDATES)
+    return rrf([bm25_results, vector_results], [1.0, VECTOR_WEIGHT], limit=limit)
 
 
 if __name__ == "__main__":
-    questions = sys.argv[1:] or ["Hver er mannfjöldi í Kópavogi?"]
+    args = sys.argv[1:]
+    mode = "bm25"
+    if args and args[0] in ("--bm25", "--vector", "--hybrid"):
+        mode = args.pop(0)[2:]
+    questions = args or ["Hver er mannfjöldi í Kópavogi?"]
     for question in questions:
         try:
             normalized = normalize_question(question)
@@ -191,5 +297,5 @@ if __name__ == "__main__":
             print(f"{question}\n  {error}")
             continue
         print(question)
-        for table, score in search_tables(normalized, limit=5):
-            print(f"  {score:7.2f}  {table['id']:14} {table['title']}")
+        for table, score in search_tables(normalized, limit=5, mode=mode):
+            print(f"  {score:7.3f}  {table['id']:14} {table['title']}")
