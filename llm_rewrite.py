@@ -1,12 +1,26 @@
-"""Ask a local LLM (Ollama) for English search words for a normalised question.
+"""Ask a local LLM (Ollama) for Icelandic and English search keywords.
 
-Llama is much better at English than Icelandic, so the LLM returns English
-keywords that can be searched against the English table titles from
-https://px.hagstofa.is/pxen/api/v1/en/ (same table ids as the Icelandic API).
+Input:
+    An Icelandic question about official statistics.
 
-If the English catalog exists, words that appear in no English title are
-dropped, so the LLM cannot make up terms. If Ollama is unavailable the
-question is returned unchanged.
+Output:
+    Two separate keyword arrays:
+    - ISKeywords: Icelandic keywords
+    - ENKeywords: English translations, in the same order
+
+Example:
+    Input:
+        "Hvað eru margir án vinnu?"
+
+    Output:
+        {
+            "ISKeywords": ["vinnuleysi", "atvinnuleitendur"],
+            "ENKeywords": ["unemployment", "jobseekers"]
+        }
+
+The English keywords can be searched against English Statistics Iceland
+table titles, while the Icelandic keywords can be searched against
+Icelandic table titles.
 """
 
 import json
@@ -20,37 +34,96 @@ import requests
 from normalize import QuestionError, normalize_question
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "llama3.2:3b"  # see docs/LLM_REWRITE.md for other models to try
-MAX_WORDS = 8
+MODEL = "llama3.2:3b"
+MAX_KEYWORDS = 5
+
+CATALOG_IS_PATH = Path(__file__).parent / "local" / "catalog-is.json"
 CATALOG_EN_PATH = Path(__file__).parent / "local" / "catalog-en.json"
 
 SYSTEM_PROMPT = """The user asks an Icelandic question about official statistics.
-Return 2-5 English keywords that would appear in the title of the Statistics Iceland table that answers it.
-Use standard statistical terms (e.g. population, consumer price index, migration, unemployment, wages, births).
-Do not include years, place names or question words. Answer only with JSON: {"keywords": [...]}"""
+Return 2-5 keyword pairs for concepts that would appear in the title of the
+Statistics Iceland table that answers the question.
 
-# Example question/answer pairs shown to the model before the real question.
+Return exactly this JSON structure:
+{
+  "ISKeywords": ["Icelandic keyword 1", "Icelandic keyword 2"],
+  "ENKeywords": ["English keyword 1", "English keyword 2"]
+}
+
+Rules:
+- The arrays must have the same number of items.
+- ENKeywords[i] must be the English translation of ISKeywords[i].
+- Use standard statistical terms.
+- Do not include years, place names, or question words.
+- Answer only with JSON.
+"""
+
 EXAMPLES = [
-    ("Hvað búa margir í Hafnarfirði?", ["population", "municipality"]),
-    ("Hver var verðbólgan í fyrra?", ["consumer price index", "inflation"]),
+    (
+        "Hvað búa margir í Hafnarfirði?",
+        {
+            "ISKeywords": ["íbúafjöldi", "sveitarfélag"],
+            "ENKeywords": ["population", "municipality"],
+        },
+    ),
+    (
+        "Hver var verðbólgan í fyrra?",
+        {
+            "ISKeywords": ["verðbólga", "neysluverðsvísitala"],
+            "ENKeywords": ["inflation", "consumer price index"],
+        },
+    ),
+    (
+        "Hvað eru margir án vinnu?",
+        {
+            "ISKeywords": ["vinnuleysi", "atvinnuleitendur"],
+            "ENKeywords": ["unemployment", "jobseekers"],
+        },
+    ),
 ]
 
 
 @lru_cache(maxsize=1)
-def english_vocabulary():
-    """Words in the English table titles, or None if the catalog is not crawled yet."""
-    if not CATALOG_EN_PATH.exists():
+def title_vocabulary(path):
+    """Return words used in table titles, or None if the catalog does not exist."""
+    if not path.exists():
         return None
-    tables = json.loads(CATALOG_EN_PATH.read_text(encoding="utf-8"))
-    return frozenset(w for t in tables for w in re.findall(r"[a-z]+", t["title"].lower()))
+
+    tables = json.loads(path.read_text(encoding="utf-8"))
+    words = set()
+
+    for table in tables:
+        words.update(
+            re.findall(r"[a-záðéíóúýþæö]+", table["title"].lower())
+        )
+
+    return frozenset(words)
+
+
+def clean_keyword(keyword, vocabulary=None):
+    """Clean one keyword and optionally keep only words found in table titles."""
+    if not isinstance(keyword, str):
+        return []
+
+    words = re.findall(r"[a-záðéíóúýþæö]+", keyword.lower())
+
+    return [
+        word
+        for word in words
+        if len(word) >= 3 and (vocabulary is None or word in vocabulary)
+    ]
 
 
 def ask_llm(question, model=MODEL, timeout=30):
-    """Return the raw list of keywords suggested by the LLM."""
+    """Ask Ollama for separate Icelandic and English keyword arrays."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
     for example_question, keywords in EXAMPLES:
         messages.append({"role": "user", "content": example_question})
-        messages.append({"role": "assistant", "content": json.dumps({"keywords": keywords})})
+        messages.append(
+            {"role": "assistant", "content": json.dumps(keywords, ensure_ascii=False)}
+        )
+
     messages.append({"role": "user", "content": question})
 
     response = requests.post(
@@ -60,22 +133,28 @@ def ask_llm(question, model=MODEL, timeout=30):
             "messages": messages,
             "format": "json",
             "stream": False,
-            # Qwen 3 "thinks" before answering by default, which is slow; ignored by other models.
+            # Qwen 3 can "think" before answering, which is slower.
             "think": False,
-            # num_predict stops the model if it starts repeating itself.
-            "options": {"temperature": 0, "num_predict": 60},
+            "options": {
+                "temperature": 0,
+                "num_predict": 150,
+            },
         },
         timeout=timeout,
     )
+
     response.raise_for_status()
-    content = json.loads(response.json()["message"]["content"])
-    return [k for k in content.get("keywords", []) if isinstance(k, str)]
+
+    content = response.json()["message"]["content"]
+    return json.loads(content)
 
 
 def rewrite(normalized, model=MODEL):
-    """Add an "llm_keywords_en" field with English search words."""
+    """Add separate Icelandic and English keyword arrays to a normalized question."""
     normalized = dict(normalized)
-    normalized["llm_keywords_en"] = []
+
+    normalized["ISKeywords"] = []
+    normalized["ENKeywords"] = []
 
     try:
         suggestions = ask_llm(normalized["original"], model=model)
@@ -83,15 +162,37 @@ def rewrite(normalized, model=MODEL):
         normalized["llm_error"] = str(error)
         return normalized
 
-    vocabulary = english_vocabulary()
-    for suggestion in suggestions:
-        for word in re.findall(r"[a-z]+", suggestion.lower()):
-            if len(word) < 3 or word in normalized["llm_keywords_en"]:
-                continue
-            if vocabulary is None or word in vocabulary:
-                normalized["llm_keywords_en"].append(word)
+    icelandic_vocab = title_vocabulary(CATALOG_IS_PATH)
+    english_vocab = title_vocabulary(CATALOG_EN_PATH)
 
-    normalized["llm_keywords_en"] = normalized["llm_keywords_en"][:MAX_WORDS]
+    is_suggestions = suggestions.get("ISKeywords", [])
+    en_suggestions = suggestions.get("ENKeywords", [])
+
+    # Keep the lists aligned: only use complete Icelandic/English pairs.
+    pair_count = min(len(is_suggestions), len(en_suggestions))
+
+    for index in range(pair_count):
+        is_words = clean_keyword(is_suggestions[index], icelandic_vocab)
+        en_words = clean_keyword(en_suggestions[index], english_vocab)
+
+        if not is_words or not en_words:
+            continue
+
+        is_keyword = " ".join(is_words)
+        en_keyword = " ".join(en_words)
+
+        if is_keyword in normalized["ISKeywords"]:
+            continue
+
+        if en_keyword in normalized["ENKeywords"]:
+            continue
+
+        normalized["ISKeywords"].append(is_keyword)
+        normalized["ENKeywords"].append(en_keyword)
+
+    normalized["ISKeywords"] = normalized["ISKeywords"][:MAX_KEYWORDS]
+    normalized["ENKeywords"] = normalized["ENKeywords"][:MAX_KEYWORDS]
+
     return normalized
 
 
@@ -105,12 +206,15 @@ if __name__ == "__main__":
         "Hversu margir fluttu frá Austurlandi 2023?",
         "Hvað fæddust mörg börn 2020?",
     ]
+
     for question in questions:
         try:
             result = rewrite(normalize_question(question))
         except QuestionError as error:
             print(f"{question}\n  {error}")
             continue
+
         print(question)
-        print("  keywords:       ", result["keywords"] + result["expanded"])
-        print("  llm_keywords_en:", result["llm_keywords_en"], result.get("llm_error", ""))
+        print("  Original keywords:", result["keywords"] + result["expanded"])
+        print("  ISKeywords:", result["ISKeywords"], result.get("llm_error", ""))
+        print("  ENKeywords:", result["ENKeywords"])
