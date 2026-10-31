@@ -34,7 +34,7 @@ import requests
 from normalize import QuestionError, normalize_question
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "llama3.2:3b"
+MODEL = "qwen3:8b"
 MAX_KEYWORDS = 5
 
 CATALOG_IS_PATH = Path(__file__).parent / "local" / "catalog-is.json"

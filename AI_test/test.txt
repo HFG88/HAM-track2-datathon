@@ -1,4 +1,22 @@
-Ollama:
--hversu margir dóu árið 1999
-keywords dou = danir
+qwen:
 
+Hvað eru margir án vinnu?
+  Original keywords: ['an', 'vinnu']
+  ISKeywords: ['vinnuleysi', 'atvinnuleitendur'] 
+  ENKeywords: ['unemployment', 'jobseekers']
+
+
+Í hvaða sveitarfélögum féll nýting hótelherbergja mest utan sumarmánaða?
+  Original keywords: ['sveitarfelogum', 'fell', 'nyting', 'hotelherbergja', 'utan', 'sumarmanada']
+  ISKeywords: ['nýting', 'hótelherbergi'] 
+  ENKeywords: ['usage', 'hotel accommodation']
+
+Hvaða mánuðir sýna mestu toppa í skráningum og fylgir mynstrið komum um Keflavíkurflugvöll?
+  Original keywords: ['syndar', 'toppa', 'skraningum', 'fylgir', 'mynstrid', 'komu', 'keflavikurflugvoll']
+  ISKeywords: ['skráningarmánuður', 'flugvél'] 
+  ENKeywords: ['registration month', 'aircraft']
+
+Hve hátt hlutfall fyrirtækja sem stofnuð voru tiltekið ár var enn virkt eftir 5 ár, eftir atvinnugreinum?
+  Original keywords: ['thatta', 'hlutfall', 'fyrirtaekja', 'stofnud', 'tiltekid', 'virk', 'atvinnugreinum']
+  ISKeywords: ['stofnun', 'atvinnugrein'] 
+  ENKeywords: ['establishment', 'industry']
