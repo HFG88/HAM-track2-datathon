@@ -284,6 +284,36 @@ def search_tables(normalized, limit=10, mode="bm25"):
     return rrf([bm25_results, vector_results], [1.0, VECTOR_WEIGHT], limit=limit)
 
 
+def describe_candidates(results, examples=4):
+    """Short descriptions of search results, small enough for an LLM prompt.
+
+    The url is the table's unique key: some ids exist in more than one folder.
+    """
+    candidates = []
+    for table, score in results:
+        variables = []
+        period = None
+        for variable in (table.get("metadata") or {}).get("variables", []):
+            labels = variable.get("valueTexts", [])
+            if variable.get("time"):
+                period = f"{labels[0]} – {labels[-1]}" if labels else None
+                continue
+            variables.append({
+                "name": variable.get("text", ""),
+                "count": len(labels),
+                "examples": labels[:examples],
+            })
+        candidates.append({
+            "url": table["url"],
+            "id": table["id"],
+            "title": table["title"],
+            "period": period,
+            "variables": variables,
+            "score": score,
+        })
+    return candidates
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     mode = "bm25"
