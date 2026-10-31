@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="is">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f4ef">
+  <meta name="description" content="Spyrðu um Ísland og fáðu svör úr opinberum gögnum Hagstofunnar.">
+  <title>Spyrðu Hagstofuna — Gögn um Ísland</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="#" aria-label="Spyrðu Hagstofuna, forsíða">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M5 24.5 13.2 7l4.3 9.1 3-5.7L27 24.5H5Z" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10 24.5h15" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="brand-copy">
+          <span class="brand-name">HAGSTOFA</span>
+          <span class="brand-caption">GÖGN UM ÍSLAND</span>
+        </span>
+      </a>
+      <div class="header-note">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>Opinber gögn, á mannamáli</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-line"></span> SPYRÐU HAGSTOFUNA</p>
+          <h1 id="hero-title">Tölurnar segja sögur.<br><span>Spurðu.</span></h1>
+          <p class="intro">Fáðu svör úr opinberum gögnum um Ísland. Skrifaðu spurningu eins og þú myndir spyrja vin.</p>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="art-orbit orbit-one"></div>
+          <div class="art-orbit orbit-two"></div>
+          <div class="art-sun"></div>
+          <div class="art-mountain mountain-back"></div>
+          <div class="art-mountain mountain-front"></div>
+          <div class="art-water">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="art-label"><span>ÍSLAND</span><span>°</span></div>
+        </div>
+      </section>
+
+      <section class="ask-panel" aria-label="Spyrja um tölfræði">
+        <form id="question-form">
+          <label for="question">Hvað viltu vita?</label>
+          <div class="input-row">
+            <svg class="search-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+              <circle cx="10.8" cy="10.8" r="6.8" stroke="currentColor" stroke-width="1.7"/>
+              <path d="m16 16 4.3 4.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+            <input id="question" name="question" required autocomplete="off" placeholder="t.d. Hvað búa margir á Íslandi?" aria-describedby="question-hint">
+            <button type="submit" class="ask-button">
+              <span>Spyrja</span>
+              <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                <path d="M3.5 10h12m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <p class="input-hint" id="question-hint">Þú getur spurt á íslensku — leitað er í gögnum Hagstofunnar.</p>
+        </form>
+
+        <div class="suggestions">
+          <span class="suggestions-label">VANTAR HUGMYND?</span>
+          <div class="suggestion-list">
+            <button class="suggestion" type="button" data-question="Hvað bjuggu margir á Íslandi árið 2024?">Mannfjöldi</button>
+            <button class="suggestion" type="button" data-question="Hver var verðbólgan á Íslandi árið 2024?">Verðbólga</button>
+            <button class="suggestion" type="button" data-question="Hversu margir fluttu til Íslands árið 2024?">Flutningar</button>
+          </div>
+        </div>
+      </section>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <section id="answer" class="answer-card" aria-live="polite" aria-label="Svar"></section>
+
+      <section class="trust-row" aria-label="Um þjónustuna">
+        <div class="trust-item">
+          <span class="trust-icon trust-icon-source" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 4.8h9l5 5v9.4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 5v5h5M8 14h8m-8 3h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span><strong>Traustar heimildir</strong><small>Beint úr gögnum Hagstofunnar</small></span>
+        </div>
+        <div class="trust-item">
+          <span class="trust-icon trust-icon-search" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8 11h5m-2.5-2.5v5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </span>
+          <span><strong>Einfalt að spyrja</strong><small>Tölfræði, án flækjustigs</small></span>
+        </div>
+        <div class="trust-note">HAGSTOFA ÍSLANDS <span>·</span> OPINBER TÖLFRÆÐI</div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Gögnin tala. Við hjálpum þér að hlusta.</span>
+      <span>HAGSTOFA ÍSLANDS <span class="footer-spark">✳</span></span>
+    </footer>
+  </div>
+</body>
+</html>
