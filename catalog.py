@@ -26,14 +26,14 @@ def get_catalog_level(session, path):
     return entries
 
 
-def crawl_tables(start="Ibuar", max_directories=25):
+def crawl_tables(start=None, max_directories=None):
     """Discover tables recursively within a directory limit."""
-    stack = [start.split("/")]
+    stack = [start.strip("/").split("/")] if start else [[]]
     visited = set()
     tables = []
 
     with requests.Session() as session:
-        while stack and len(visited) < max_directories:
+        while stack and (max_directories is None or len(visited) < max_directories):
             path = stack.pop()
             path_string = "/".join(path)
 
@@ -60,7 +60,7 @@ def crawl_tables(start="Ibuar", max_directories=25):
                         "url": BASE_URL + "/".join(
                             quote(p, safe="") for p in child_path
                         ),
-                        "category": path[0],
+                        "category": path[0] if path else entry_id,
                     })
 
                 elif entry_type in ("l", None):
@@ -151,21 +151,18 @@ def search_catalog(tables, question, limit=10):
 
 
 
+
 if __name__ == "__main__":
     tables = crawl_tables(
-        start="Ibuar",
-        max_directories=25
+        start=None,
+        max_directories=None
     )
 
-    save_catalog(tables)
+    save_catalog(tables, "local/catalog-full.json")
 
-    question = "Búferlaflutningar milli landsvæða"
+    categories = sorted(set(t["category"] for t in tables))
 
-    print(f"\nSearching for: {question}\n")
-
-    results = search_catalog(tables, question)
-
-    for table in results:
-        print(f"{table['id']} | {table['title']}")
-        print(f"  {table['url']}")
+    print("\n=== CRAWL COMPLETE ===")
+    print(f"Total tables: {len(tables)}")
+    print(f"Categories: {categories}")
 
