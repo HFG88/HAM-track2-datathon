@@ -49,23 +49,42 @@ result["llm_keywords_en"]   # ["unemployment", "labour", "force"]
 # Install Ollama (asks for sudo)
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Download a model
-ollama pull llama3.2:3b     # ~2 GB, what we tested with
-ollama pull llama3.1:8b     # ~4.7 GB, probably better
+# Download a model (see "Models to try" below)
+ollama pull llama3.2:3b
 
 # Run the test questions
 python llm_rewrite.py
 python llm_rewrite.py "Your own question here?"
 ```
 
-To change the model, edit `MODEL` at the top of `llm_rewrite.py`.
+To change the model, edit `MODEL` at the top of `llm_rewrite.py`. Nothing else needs to change: all the models below work with the same code.
+
+## Models to try
+
+We're allowed to use other models than Llama. The question is which one understands Icelandic best and is fast enough. Sizes are approximate download sizes.
+
+| Model | Ollama name | Size | Notes |
+|---|---|---|---|
+| Llama 3.2 3B | `llama3.2:3b` | ~2 GB | What we tested. Bad at Icelandic, OK in English. |
+| Llama 3.1 8B | `llama3.1:8b` | ~4.7 GB | Same family as Hagur in the slides. |
+| Gemma 3 4B | `gemma3:4b` | ~3.3 GB | Google. Known for being good at smaller languages. |
+| Gemma 3 12B | `gemma3:12b` | ~8 GB | Probably the best balance if you have the disk and RAM. |
+| Qwen 3 4B | `qwen3:4b` | ~2.5 GB | Alibaba. Strong overall; Icelandic unknown. |
+| Qwen 3 8B | `qwen3:8b` | ~5 GB | |
+
+**Gemma 3** is the most interesting one. It may be good enough at Icelandic that we can ask for **Icelandic** keywords directly and skip the English catalog. Test that (task 2 below).
+
+**Qwen 3** "thinks" (writes out its reasoning) before answering by default, which makes it much slower. The code sends `"think": False` to turn that off; other models ignore it.
+
+For a neutral comparison of models on Icelandic, see Miðeind's leaderboard: https://mideind-icelandic-llm-leaderboard.hf.space
 
 ## Your tasks
 
-1. **Compare 3b and 8b.** Run `python llm_rewrite.py` with both models. Does 8b get the tourism and teacher wages questions right? How long does each one take per question? On a laptop without a GPU, 3b took ~2 s.
-2. **Improve the prompt.** Change `SYSTEM_PROMPT` and `EXAMPLES` in `llm_rewrite.py`. Adding more example question/keyword pairs usually helps the most. Use the test questions with known correct tables if we have them.
-3. **Try more questions**, especially everyday wording (*"án vinnu"*, *"leigja"*, *"ferðamenn"*), since that's where the LLM should help.
-4. **Write down what you find**: which model, which prompt, how many questions got good keywords, and how fast.
+1. **Compare models.** Run `python llm_rewrite.py` with each model you can fit. For each one, write down how many of the 7 questions got good keywords (tourism and teacher wages are the hard ones) and how many seconds per question. On a laptop without a GPU, Llama 3B took ~2 s.
+2. **Try Icelandic keywords with Gemma.** Change `SYSTEM_PROMPT` to ask for Icelandic keywords in nominative form, e.g. *"án vinnu"* → *"atvinnuleysi"*. If Gemma gives real Icelandic words (Llama 3B made up words like *"útlagisbær"*), we may not need the English catalog at all.
+3. **Improve the prompt.** Change `SYSTEM_PROMPT` and `EXAMPLES`. Adding more example question/keyword pairs usually helps the most.
+4. **Try more questions**, especially everyday wording (*"án vinnu"*, *"leigja"*, *"ferðamenn"*), since that's where the LLM should help.
+5. **Write down what you find** in a table like the one above: model, prompt, score out of 7, and seconds per question. That tells us which model to use for Hagur (step 7) as well.
 
 ## Things to know
 

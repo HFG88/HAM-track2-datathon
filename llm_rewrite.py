@@ -20,7 +20,7 @@ import requests
 from normalize import QuestionError, normalize_question
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "llama3.2:3b"  # try "llama3.1:8b" if you have the disk space
+MODEL = "llama3.2:3b"  # see docs/LLM_REWRITE.md for other models to try
 MAX_WORDS = 8
 CATALOG_EN_PATH = Path(__file__).parent / "local" / "catalog-en.json"
 
@@ -60,6 +60,8 @@ def ask_llm(question, model=MODEL, timeout=30):
             "messages": messages,
             "format": "json",
             "stream": False,
+            # Qwen 3 "thinks" before answering by default, which is slow; ignored by other models.
+            "think": False,
             # num_predict stops the model if it starts repeating itself.
             "options": {"temperature": 0, "num_predict": 60},
         },
