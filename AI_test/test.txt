@@ -1,0 +1,4 @@
+Ollama:
+-hversu margir dóu árið 1999
+keywords dou = danir
+

@@ -1,0 +1,188 @@
+Hnitmiðaðar spurningar eftir efni - gagnaskrá Hagstofu Íslands
+Athugið: byggt á titlum taflna eingöngu.
+
+ATVINNUVEGIR
+============
+
+Farþegar með ferjum og skemmtiferðaskipum (SAM02003, SAM02002)
+  1. Hvernig breyttist fjöldi farþega skemmtiferðaskipa til Reykjavíkurhafnar árin eftir 2020?
+  2. Fór fjöldi farþega með bílferjum einhvern tíma aftur yfir stigið fyrir 2008?
+
+Gisting á hótelum (SAM01104, SAM01201, SAM01603)
+  1. Í hvaða sveitarfélögum féll nýting hótelherbergja mest utan sumarmánaða?
+  2. Hvernig báru gistinætur á tjaldsvæðum sig saman við hótelgistinætur 2020-2021?
+
+Bílaleigubílar (SAM08049)
+  1. Hvaða mánuðir sýna mestu toppa í skráningum og fylgir mynstrið komum um Keflavíkurflugvöll (SAM02001)?
+
+Lýðfræði fyrirtækja (FYR09002, FYR03003)
+  1. Hve hátt hlutfall fyrirtækja sem stofnuð voru tiltekið ár var enn virkt eftir 5 ár, eftir atvinnugreinum?
+  2. Á hvaða aldri verða fyrirtæki oftast gjaldþrota?
+
+Launakostnaður (VIN02100, VIN02101)
+  1. Í hvaða atvinnugreinum hefur launakostnaður á unna stund hækkað hraðast frá 2008?
+
+Landbúnaður (LAN10201, LAN10301, LAN10001)
+  1. Hvernig hefur skipting kjötframleiðslu milli lamba-, alifugla- og svínakjöts breyst?
+  2. Hefur notkun tilbúins áburðar dregist saman á meðan uppskera helst stöðug?
+
+Sjávarútvegur (SJA09005, SJA01110, SJA07001)
+  1. Hvernig hefur afli einnar tegundar (t.d. loðnu) sveiflast milli ára?
+  2. Hvernig þróuðust hvalveiðar og útflutningur hvalaafurða 2000-2024?
+  3. Vex fiskeldi hraðar en veiddur afli?
+
+Upplýsingatækni og gervigreind (STI03266, STI03267, SAM07302)
+  1. Hvaða gervigreindartækni nota fyrirtæki mest og hvað hafa þau mestar áhyggjur af?
+  2. Hvernig breyttust netkaup einstaklinga frá 2002 til 2019?
+
+Nýsköpun og rannsóknir (FYR05101, FYR05116)
+  1. Hvernig er hlutfall útgjalda til rannsókna og þróunar af VLF á Íslandi miðað við önnur Evrópulönd?
+
+EFNAHAGUR
+=========
+
+Fjármál hins opinbera (THJ05812, THJ05181)
+  1. Hvernig þróuðust tekjur og gjöld hins opinbera ársfjórðung fyrir ársfjórðung árið 2020?
+  2. Hvernig hafa hreinar fjáreignir sveitarfélaga breyst frá 1998?
+
+Fræðsluútgjöld (THJ05661, THJ05636A)
+  1. Hvernig er kostnaður á nemanda mismunandi eftir skólastigum?
+  2. Hefur kostnaður á grunnskólanema haldið í við verðbólgu?
+
+Heilbrigðisútgjöld (THJ05532, THJ05551)
+  1. Hve stór hluti heilbrigðisútgjalda er einkafjármagnaður miðað við opinberan yfir tíma?
+
+Þjóðhagsreikningar (THJ01401, THJ01301, THJ07000)
+  1. Hvernig ber vöxtur landsframleiðslu á mann saman við vöxt heildarlandsframleiðslu?
+  2. Hvað segir núverandi þjóðhagsspá fyrir 2025-2031?
+
+Ferðaþjónustureikningar (SAM08000, SAM08008)
+  1. Hve miklu eyða erlendir ferðamenn í hverjum flokki (gisting, samgöngur, matur)?
+
+Utanríkisverslun (UTA06002, UTA06006, UTA06106)
+  1. Hver er gjaldmiðlaskipting inn- og útflutnings?
+  2. Hvernig hefur útflutningur ferskfisks með flugi borið sig saman við sjóflutninga?
+
+Vísitölur (VIS01005, VIS13000, VIS01106)
+  1. Hvernig víkja vísitala neysluverðs og byggingarvísitala hvor frá annarri á 10 ára tímabili?
+  2. Leiðir vísitala markaðsverðs íbúðarhúsnæðis vísitölu neysluverðs eða eltir hana?
+
+Framleiðni (THJ11011)
+  1. Hvernig hefur framleiðni vinnuafls þróast miðað við unnar stundir frá 2008?
+
+ÍBÚAR OG KOSNINGAR
+==================
+
+Fæðingar og dánir (MAN05103, MAN05405)
+  1. Hvernig hefur meðalaldur mæðra breyst frá 1961?
+  2. Hve mikill er munur á ævilengd 30 ára eftir menntun?
+
+Nöfn (MAN11101, MAN11111)
+  1. Hver eru algengustu fyrstu nöfn þeirra sem fæddir eru eftir 2000?
+  2. Hver eru algengustu tvínefni?
+
+Búferlaflutningar (MAN01406, MAN10003)
+  1. Hvaða þjóðerni eru mest áberandi í nettó aðflutningi síðustu ársfjórðunga?
+  2. Hvernig bera flutningar til og frá höfuðborgarsvæðinu sig saman við flutninga milli annarra landsvæða?
+
+Hjónabönd og skilnaðir (MAN06100, MAN06103)
+  1. Hvernig hefur meðalaldur við fyrsta hjónaband breyst?
+  2. Breyttist tíðni skilnaða eftir 2011?
+
+Alþingiskosningar (KOS02001, KOS02104, KOS02050)
+  1. Hvernig breyttist kjörsókn til lengri tíma?
+  2. Hve margir kjósendur fengu aðstoð og hvernig var bakgrunnur frambjóðenda 2021-2024?
+
+Sveitarstjórnarkosningar (KOS03200a, KOS03216)
+  1. Hvernig er kjörsókn nýrra ungra kjósenda eftir stærð sveitarfélags?
+  2. Hvernig ber kjörsókn erlendra ríkisborgara sig saman við íslenska?
+
+Mannfjöldi í sveitarfélögum (MAN03270, MAN04203, MAN43006)
+  1. Í hvaða hverfum Reykjavíkur er hæst hlutfall innflytjenda?
+  2. Hvaða sveitarfélag stækkaði hraðast vegna erlendra ríkisborgara?
+
+Manntal 2021 (CEN1616, CEN1604, CEN1513)
+  1. Hvernig er bílaeign heimila eftir smásvæðum?
+  2. Á hvaða svæðum eru lægstar heildartekjur heimila á neyslueiningu?
+
+Mannfjöldaspá (MAN09010)
+  1. Á hvaða ári nær framfærsluhlutfallið hámarki samkvæmt spánni?
+
+SAMFÉLAG
+========
+
+Dómsmál og afbrot (DOM0501, DOM0502)
+  1. Hvaða brotaflokkar uxu hraðast frá 1999 til 2015?
+  2. Hvernig breyttist meðalfjöldi fanga?
+
+Aldraðir og fatlað fólk (HEI03004, HEI09400)
+  1. Hvernig hefur vistrými fyrir aldraða á hvern aldraðan breyst til 2010?
+  2. Á hvaða þjónustusvæðum fjölgaði fötluðu fólki með þjónustu mest?
+
+Jafnréttismál (VIN02010, HEI11104)
+  1. Hvernig hefur óleiðréttur launamunur kynjanna þróast frá 2008?
+  2. Í hvaða áhrifastöðum er kynjamunur mestur?
+
+Lífsvenjur og heilsa (HER01211, HEI07202, HER02211)
+  1. Hvernig er reykingatíðni eftir menntun og tekjum?
+  2. Hvernig hefur áfengisneysla breyst?
+  3. Hvernig voru þunglyndiseinkenni ólík 2015 og 2019?
+
+Heilbrigðisþjónusta (HEI04400, HEI04101)
+  1. Hvernig hefur lyfjanotkun vaxið frá 1989?
+  2. Hvaða heilbrigðisstéttum fjölgaði hraðast?
+
+Laun og tekjur (VIN02003, TEK01008, LIF01110)
+  1. Hver er launamunur milli atvinnugreina hjá fullvinnandi launafólki?
+  2. Hvernig hafa tekjur eftir menntun þróast?
+  3. Hvernig hefur Ginistuðullinn breyst?
+
+Húsnæði og skuldir (LIF03307, THJ09008, LIF03410)
+  1. Hve hátt hlutfall heimila ber íþyngjandi húsnæðiskostnað eftir tekjufimmtungum?
+  2. Hve margar fjölskyldur eru með neikvætt eigið fé í fasteign?
+  3. Hve margt ungt fólk býr enn í foreldrahúsum eftir landsvæðum?
+
+Menning (MEN05102, MEN07006, MEN06111)
+  1. Hvernig náði leikhúsaðsókn sér á strik eftir 2020?
+  2. Hve hátt hlutfall safngesta er erlent?
+  3. Hvernig hefur aðsókn að íslenskum og erlendum kvikmyndum breyst?
+
+Fjölmiðlun (MID00102, MEN04012)
+  1. Hvernig bera auglýsingatekjur dagblaða sig saman við netmiðla?
+
+Trúfélög (MAN10001)
+  1. Hvaða trú- og lífsskoðunarfélög uxu hraðast frá 1998?
+
+Skólamál (SKO02105, SKO03223, SKO04207)
+  1. Hvernig hefur fjöldi nemenda á hvern kennara breyst?
+  2. Hvert er brotthvarf úr framhaldsskóla eftir menntun foreldra?
+  3. Hvernig er brautskráning úr bakkalárnámi eftir námssviðum?
+
+Vinnumarkaður (JVS00001, vinnumarkaðsrannsókn)
+  1. Hve mörg laus störf eru í hverri atvinnugrein eftir ársfjórðungum?
+  2. Hvernig er slaki á vinnumarkaði ólíkur eftir kyni yfir tíma?
+
+UMHVERFI OG SÖGULEGAR TÖLUR
+===========================
+
+Losun gróðurhúsalofttegunda (1990-2024)
+  1. Losun hvaða geira jókst eða minnkaði mest frá 1990?
+  2. Hvernig bera flúorlofttegundir sig saman við CO2 undanfarin ár?
+
+Úrgangur og endurvinnsla
+  1. Hvaða úrgangsflokkur hafði hæst endurvinnsluhlutfall?
+  2. Hvernig breyttist úrvinnsla ökutækja 2008-2022?
+
+Orkumál
+  1. Hvernig er raforkuverð til heimila á Íslandi miðað við önnur Norðurlönd?
+  2. Hvernig breyttist olíunotkun eftir 2000?
+
+Samgöngur (almenningssamgöngur 2014)
+  1. Hvernig er notkun almenningssamgangna ólík eftir menntun og atvinnustöðu?
+
+Græna hagkerfið
+  1. Hvernig hafa veiðigjöld og umhverfisskattar þróast sem hlutfall af heildarsköttum?
+
+Sögulegar tölur (SOG06000-SOG06030, SOG04001)
+  1. Hvernig bar lágmarksdagvinnutaxti verkamanna sig saman við verðlag frá 1906?
+  2. Hvenær féll heyfengur fyrst í langri röðinni frá 1882?
