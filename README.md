@@ -37,7 +37,39 @@ question (Icelandic or English)
 - **Catalog:** `catalog.py` crawls the PX-API tree (`https://px.hagstofa.is/pxis/api/v1/is/`) and `enrich_catalog.py` fetches every table's metadata (dimensions, codes, value labels). A snapshot of all 2,102 tables is shipped in `data/` so a fresh clone works offline for search.
 - **Data:** for each question, `px_query.py` validates the selection against the table's metadata and sends a **live POST** to the table's PX-API URL (`{"query": [...], "response": {"format": "json"}}`). Answers are therefore always current.
 
-## Run it
+## Run it on a Spark machine (NVIDIA GB10) – recommended
+
+This is the setup we developed and tested on. Everything runs on the Spark itself: no SSH tunnel, no sudo. The Spark is ARM (`uname -m` → `aarch64`) with 128 GB of memory, enough for both models at once.
+
+```bash
+# 1. Ollama, installed in your home folder (no sudo needed)
+mkdir -p ~/ollama
+curl -fsSL https://ollama.com/download/ollama-linux-arm64.tar.zst | zstd -d | tar x -C ~/ollama
+nohup ~/ollama/bin/ollama serve > ~/ollama/log.txt 2>&1 &
+
+# 2. The models (~40 GB in total; a few minutes on a fast connection)
+~/ollama/bin/ollama pull qwen3:32b
+~/ollama/bin/ollama pull qwen3:30b-a3b
+~/ollama/bin/ollama pull qwen3-embedding:0.6b
+
+# 3. The app
+git clone https://github.com/HFG88/HAM-track2-datathon.git
+cd HAM-track2-datathon
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --port 8000
+```
+
+Open **http://127.0.0.1:8000/** in the browser on the Spark and ask a question. To open it from another computer on the same network, start with `uvicorn app:app --host 0.0.0.0 --port 8000` and use `http://<spark-ip>:8000/` (`hostname -I` shows the IP).
+
+Notes:
+- If Ollama is already installed system-wide on the Spark (`ollama --version` works), skip step 1 and use `ollama pull …` directly.
+- The first question takes ~30–60 s while the models load into memory; after that, answers take about 7–25 s.
+- If `python3 -m venv` fails on a machine without the venv package, use `pip install --user -r requirements.txt` and run `python3 -m uvicorn app:app --port 8000` instead.
+- `nohup` keeps Ollama running after you log out. Stop it with `pkill -f "ollama serve"`.
+
+## Run it elsewhere
 
 ### 1. Python
 ```bash
