@@ -138,11 +138,26 @@ def is_total(label):
 
 
 def matching_values(variable, normalized):
-    """Values whose label contains a word from the question (by 5-letter stem)."""
+    """Values whose label contains a word from the question (by 5-letter stem).
+
+    Uses both the LLM's Icelandic keywords (official terms, e.g. "atvinnuleysi" -> the
+    rate) and the question's own words (e.g. "atvinnulausir" -> the count), so the
+    answer model gets what it needs for "how many" as well as "what share".
+    """
+    llm_words = [
+        w for keyword in normalized.get("ISKeywords", [])
+        for w in tokenize(clean(keyword)) if len(w) >= 4 and not w.isdigit()
+    ]
     words = [w for w in normalized["keywords"] if len(w) >= 4 and not w.isdigit()]
+    matches = match_words(variable, llm_words, []) if llm_words else []
+    matches += match_words(variable, words, normalized["phrases"])
+    return list(dict.fromkeys(matches))
+
+
+def match_words(variable, words, phrases):
+    """Values whose label contains one of the words: whole words first, then stems."""
     # Short words lose their last letter too: "konum" ~ "konur", "kyni" ~ "kyn".
     stems = {w[:max(4, min(5, len(w) - 1))] for w in words}
-    phrases = normalized["phrases"]
 
     # Whole-word matches first: "Flateyri" should not also pick "Flatey á Breiðafirði".
     exact = [

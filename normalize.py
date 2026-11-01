@@ -309,7 +309,11 @@ def normalize_question(question):
     time = extract_time(cleaned, tokens)
 
     keywords = []
-    for token in tokens:
+    for position, token in enumerate(tokens):
+        # "án vinnu" = without work: the negated word must not be searched for,
+        # or it matches the opposite ("Við vinnu", at work).
+        if position > 0 and tokens[position - 1] in ("an", "without"):
+            continue
         if (
             token in STOPWORDS
             or token in ENGLISH_STOPWORDS
@@ -323,6 +327,10 @@ def normalize_question(question):
             keywords.append(token)
 
     phrases = [f"{a} {b}" for a, b in zip(keywords, keywords[1:])]
+
+    # "án vinnu/atvinnu/starfs" (without work) = unemployed.
+    if re.search(r"\ban (vinnu|atvinnu|starfs|starfa)\b", cleaned):
+        keywords.append("atvinnulausir")
 
     # "Hvað áttu margir heima á X?" (eiga heima = live): a population question.
     # Drop "heima" itself, or it matches "Fjarvinna heima" (working from home).
