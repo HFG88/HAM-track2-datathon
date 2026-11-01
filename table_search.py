@@ -22,6 +22,7 @@ Input is the dict from normalize.normalize_question().
 """
 
 import json
+import os
 import math
 import re
 import sys
@@ -39,7 +40,11 @@ from normalize import QuestionError, clean, normalize_question, tokenize
 LOCAL = Path(__file__).parent / "local"
 CATALOG_PATHS = [LOCAL / "catalog-enriched.json", LOCAL / "catalog-full.json"]
 
-OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
+# Where Ollama runs. Set OLLAMA_HOST to use another machine, e.g. through an SSH tunnel.
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+if "://" not in OLLAMA_HOST:  # the ollama CLI also accepts "host:port"
+    OLLAMA_HOST = "http://" + OLLAMA_HOST
+OLLAMA_EMBED_URL = OLLAMA_HOST + "/api/embed"
 EMBED_MODEL = "qwen3-embedding:0.6b"
 EMBED_BATCH = 32
 # Qwen3 embeddings work best when the question says what it is looking for.

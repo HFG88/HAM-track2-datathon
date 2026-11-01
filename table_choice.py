@@ -12,6 +12,7 @@ Run from the project root:
 """
 
 import argparse
+import os
 import json
 import sys
 import time
@@ -21,7 +22,11 @@ import requests
 from normalize import QuestionError, normalize_question
 from table_search import describe_candidates, search_tables
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+# Where Ollama runs. Set OLLAMA_HOST to use another machine, e.g. through an SSH tunnel.
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+if "://" not in OLLAMA_HOST:  # the ollama CLI also accepts "host:port"
+    OLLAMA_HOST = "http://" + OLLAMA_HOST
+OLLAMA_URL = OLLAMA_HOST + "/api/chat"
 MODEL = "qwen3:4b"
 CANDIDATES = 10
 
