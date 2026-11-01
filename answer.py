@@ -1,6 +1,7 @@
 """Answer a question end to end.
 
-question -> normalize + LLM keywords (question_router) -> search (top 10)
+question -> (Icelandic: LLM translates to English) -> normalize + LLM keywords
+(question_router) -> search (top 10)
 -> LLM ranks tables -> selections -> px_query (PX-API data)
 -> LLM writes the answer in the question's language (Icelandic or English).
 
@@ -36,10 +37,10 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/"
 if "://" not in OLLAMA_HOST:  # the ollama CLI also accepts "host:port"
     OLLAMA_HOST = "http://" + OLLAMA_HOST
 OLLAMA_URL = OLLAMA_HOST + "/api/chat"
-# One model for every step, so the GPU never has to swap models between steps.
-# qwen3:32b wrote short, correct answers; qwen3:30b-a3b often rambled.
+# qwen3:32b chooses tables and writes answers (short and correct; 30b-a3b rambled there).
 MODEL = os.environ.get("MODEL", "qwen3:32b")
-REWRITE_MODEL = os.environ.get("REWRITE_MODEL", MODEL)
+# Translation/keywords is a simple task: the fast MoE model does it in under a second.
+REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "qwen3:30b-a3b")
 TABLE_MODEL = os.environ.get("TABLE_MODEL", MODEL)
 ANSWER_MODEL = os.environ.get("ANSWER_MODEL", MODEL)
 
@@ -139,7 +140,8 @@ def is_total(label):
 def matching_values(variable, normalized):
     """Values whose label contains a word from the question (by 5-letter stem)."""
     words = [w for w in normalized["keywords"] if len(w) >= 4 and not w.isdigit()]
-    stems = {w[:5] for w in words}
+    # Short words lose their last letter too: "konum" ~ "konur", "kyni" ~ "kyn".
+    stems = {w[:max(4, min(5, len(w) - 1))] for w in words}
     phrases = normalized["phrases"]
 
     # Whole-word matches first: "Flateyri" should not also pick "Flatey á Breiðafirði".
@@ -156,7 +158,7 @@ def matching_values(variable, normalized):
         cleaned = " ".join(tokens)
         if (
             any(p in cleaned for p in phrases)
-            or any(t[:5] in stems for t in tokens if len(t) >= 4)
+            or any(t[:len(stem)] == stem for stem in stems for t in tokens if len(t) >= 4)
             # Compounds: "fluttu" ~ "Brottfluttir", "atvinnulausir" ~ "Atvinnulausir alls"
             or any(stem in t for stem in stems for t in tokens if len(t) > len(stem) + 2)
         ):
@@ -397,28 +399,103 @@ def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MOD
     return answer
 
 
+TRANSLATE_PROMPT = """Translate the user's question about Icelandic statistics into clear English,
+and give 2-4 Icelandic keywords that would appear in the title of the Statistics Iceland
+table that answers it (official terms in nominative, e.g. mannfjöldi, vísitala neysluverðs,
+búferlaflutningar, atvinnuleysi, lifandi fæddir).
+- Fix spelling mistakes and missing accents in the Icelandic first.
+- Write place names in their Icelandic base form (nominative), with Icelandic letters:
+  "Hveragerðis" -> "Hveragerði", "Kópavogi" -> "Kópavogur", "Flateyri" -> "Flateyri".
+- Keep every year and number exactly. "síðasta ári"/"í fyrra" = "last year";
+  "nýjustu tölur" = "the latest figures".
+- Do not answer the question."""
+
+
+def translate_to_english(question, model=REWRITE_MODEL, timeout=120):
+    """One LLM call: the question in English plus Icelandic title keywords.
+
+    Returns (english, icelandic_keywords).
+    """
+    response = requests.post(
+        OLLAMA_URL,
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": TRANSLATE_PROMPT},
+                {"role": "user", "content": question + "\n/no_think"},
+            ],
+            "format": {
+                "type": "object",
+                "properties": {
+                    "english": {"type": "string"},
+                    "icelandic_keywords": {"type": "array", "items": {"type": "string"}, "maxItems": 4},
+                },
+                "required": ["english", "icelandic_keywords"],
+            },
+            "stream": False,
+            "think": False,
+            "options": {"temperature": 0, "num_predict": 160},
+        },
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    content = json.loads(response.json()["message"]["content"])
+    english = content["english"].strip()
+    if not english:
+        raise ValueError("empty translation")
+    keywords = [k for k in content.get("icelandic_keywords", []) if isinstance(k, str)]
+    return english, keywords
+
+
+def has_numbers(result):
+    """True if at least one returned cell is a number (PX uses "..", "-" etc. for missing)."""
+    for item in result.get("data", []):
+        for value in item.get("values", []):
+            try:
+                float(value)
+                return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
 def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MODEL,
                     answer_model=ANSWER_MODEL):
     """Run the whole pipeline. Returns a dict with every step, for debugging and the frontend."""
     timings = {}
     start = time.time()
+    language = detect_language(question)
+    translation = None
     try:
-        if detect_language(question) == "en":
-            # English needs the LLM to translate keywords into Icelandic (ISKeywords).
-            normalized = rewrite_question(question, model=rewrite_model)
+        if language == "is":
+            # The English route understands questions much better (typos, inflected
+            # place names, "síðasta ári"), so translate first and answer in Icelandic.
+            # The same LLM call gives the Icelandic title keywords for the search.
+            translation, is_keywords = translate_to_english(question, model=rewrite_model)
+            normalized = normalize_question(translation)
+            normalized["ISKeywords"] = is_keywords
+            # Keep the Icelandic words too: value labels are Icelandic ("fluttu" ~ "Aðfluttir").
+            try:
+                icelandic = normalize_question(question)
+                normalized["keywords"] = list(dict.fromkeys(normalized["keywords"] + icelandic["keywords"]))
+                normalized["phrases"] += icelandic["phrases"]
+                normalized["breakdowns"] = list(dict.fromkeys(normalized["breakdowns"] + icelandic["breakdowns"]))
+                if normalized["intent"] == "value":
+                    normalized["intent"] = icelandic["intent"]
+            except QuestionError:
+                pass
         else:
-            # Icelandic: the rule-based normaliser is enough and saves an LLM call.
-            normalized = normalize_question(question)
-            normalized["language"] = "is"
+            normalized = rewrite_question(question, model=rewrite_model)
     except QuestionError as error:
         return {"question": question, "answer": str(error), "error": "question"}
     except (requests.RequestException, ValueError, KeyError):
-        # The keyword LLM failed: carry on with the rule-based normaliser alone.
+        # The LLM failed: carry on with the rule-based normaliser alone.
         try:
             normalized = normalize_question(question)
         except QuestionError as error:
             return {"question": question, "answer": str(error), "error": "question"}
-    language = normalized.get("language", "is")
+        translation = None
+    normalized["language"] = language
     timings["rewrite"] = round(time.time() - start, 2)
 
     ranked, candidates, how = choose_tables(normalized, model=table_model)
@@ -439,9 +516,13 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
                 if "cells" not in str(error):
                     raise
                 result = query_table(table["url"], shrink(selections, table), max_cells=MAX_CELLS)
-            break
         except PXQueryError as error:
             errors.append(f"{choice['id']}: {error}")
+            continue
+        if has_numbers(result):
+            break
+        # Only "..", "-" or empty cells (e.g. a municipality that no longer existed): next table.
+        errors.append(f"{choice['id']}: no numbers for this selection")
     else:
         return {"question": question, "answer": "Ekki tókst að sækja gögn frá Hagstofunni.",
                 "error": "px", "details": errors}
@@ -452,6 +533,8 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
     try:
         answer = write_answer(question, table, chosen_selections, notes, rows,
                               model=answer_model, language=language)
+        if not answer.strip():
+            raise ValueError("empty answer")
         answer_by = "llm"
         if "Heimild" not in answer and "Source" not in answer:
             label = "Source" if language == "en" else "Heimild"
@@ -465,6 +548,7 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
 
     return {
         "question": question,
+        "translation": translation,
         "language": language,
         "answer": answer,
         "table": {"id": table["id"], "title": table["title"], "url": table["url"]},

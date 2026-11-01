@@ -6,8 +6,9 @@ A working end-to-end chatbot. Not perfect, but it answers real questions with re
 
 ```
 question
-  → normalize.py          years, months, breakdowns, keywords (Icelandic or English)
-  → question_router.py    English only: LLM translates keywords to Icelandic
+  → answer.py             Icelandic: fast LLM translates to English (fixes typos, place names)
+                          and gives Icelandic title keywords; English: question_router.py
+  → normalize.py          years, months, breakdowns, keywords
   → table_search.py       hybrid search (BM25 + vectors), top candidates
   → table_choice.py       main tables for common topics + year filter, LLM ranks top 3
   → answer.py             builds selections for every dimension
@@ -32,7 +33,7 @@ pip install -r requirements.txt
 - `local/catalog-full.json`
 - `local/table-vectors-qwen3-embedding-0-6b-title.npz`: vector index, built automatically on first run (~8 min on a laptop, much faster on the GPU machine)
 
-**3. Ollama with `qwen3:32b` and `qwen3-embedding:0.6b`.** We run them on the GB10 machine and reach it through an SSH tunnel:
+**3. Ollama with `qwen3:32b`, `qwen3:30b-a3b` and `qwen3-embedding:0.6b`.** We run them on the GB10 machine and reach it through an SSH tunnel:
 ```bash
 ssh -N -L 11435:localhost:11434 hackathon@<machine-ip>    # leave open
 ```
@@ -55,8 +56,9 @@ curl -X POST http://127.0.0.1:8000/spyrja_px_api -H "Content-Type: application/j
 | Variable | Default | What |
 |---|---|---|
 | `OLLAMA_HOST` | `localhost:11434` | where Ollama runs |
-| `MODEL` | `qwen3:32b` | model for every LLM step |
-| `REWRITE_MODEL`, `TABLE_MODEL`, `ANSWER_MODEL` | `MODEL` | override one step |
+| `MODEL` | `qwen3:32b` | table choice and answer |
+| `REWRITE_MODEL` | `qwen3:30b-a3b` | translation + keywords (fast) |
+| `TABLE_MODEL`, `ANSWER_MODEL` | `MODEL` | override one step |
 
 ## API response
 
@@ -88,7 +90,7 @@ curl -X POST http://127.0.0.1:8000/spyrja_px_api -H "Content-Type: application/j
 | Hvað búa margir á Íslandi árið 2030? | MAN00000 | says 2030 isn't available, gives 2026 |
 | asdkj qwpe | – | "Ég skildi ekki spurninguna…" |
 
-Answers take about 5–25 seconds. English questions are slowest (extra translation step).
+Answers take about 7–30 seconds. Icelandic questions are first translated to English by the fast model (under 1 s), because the English route understood questions much better (typos, inflected place names like "Hveragerðis", "síðasta ári").
 
 ## Known limitations
 

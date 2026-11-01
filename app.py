@@ -55,6 +55,7 @@ def to_response(result):
         "gögn": result.get("data", [])[:20],
         "gagnatafla": result.get("data_table"),
         "tungumál": result.get("language"),
+        "þýðing": result.get("translation"),
         "tími": result.get("timings"),
         "villa": result.get("error"),
     }

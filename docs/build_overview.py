@@ -49,9 +49,9 @@ STEPS = [
     # (kind, title, file, lines)
     ("io", "1  Question", "frontend → app.py",
      ["POST /spyrja_px_api", "Several questions in one", "prompt are split and", "answered one by one"]),
-    ("rules", "2  Understand", "normalize.py",
-     ["Years, months, quarters", "Places, breakdowns", "(eftir kyni, aldri …)", "Intent: value / change",
-      "English: LLM translates", "keywords (router)"]),
+    ("llm", "2  Understand", "answer.py + normalize.py",
+     ["Icelandic: fast LLM", "(qwen3:30b-a3b) translates", "to English, fixes typos,", "gives Icelandic keywords",
+      "Then rules: years, places,", "breakdowns, intent"]),
     ("rules", "3  Search", "table_search.py",
      ["2,102 tables", "BM25 on 4-letter pieces", "of title, folders,", "variables, values",
       "+ vectors (qwen3-", "embedding) = hybrid"]),
@@ -139,7 +139,7 @@ class PipelineDiagram(Flowable):
 
         # legend
         items = [("rules", "Rule-based code (fast, same result every time)"),
-                 ("llm", "Language model (qwen3:32b on the GB10 GPU machine)"),
+                 ("llm", "Language model (qwen3 on the GB10 GPU machine)"),
                  ("data", "Hagstofa PX-API (official numbers)"),
                  ("io", "User / web")]
         x = 0
@@ -232,8 +232,8 @@ def build(path):
     story.append(Spacer(1, 4 * mm))
     rows = [
         ["Step", "What happens", "Result"],
-        ["2  Understand", "“áttu … heima” (lived) is read as a population question; the year and the place are pulled out.",
-         "keywords: flateyri, mannfjoldi · years: [1990] · intent: value"],
+        ["2  Understand", "The fast model translates the question (fixing typos and inflected place names) and suggests Icelandic title keywords; rules then pull out the year and place.",
+         "“How many people lived in Flateyri in 1990?” · years: [1990] · keywords: flateyri, mannfjöldi"],
         ["3  Search", "Hybrid search over 2,102 tables. Flateyri is found among the value labels of locality tables.",
          "Population tables by locality (byggðakjarnar), old and new"],
         ["4  Candidates", "Tables that start after 1990 (most locality tables start in 1998) are dropped.",
@@ -248,7 +248,7 @@ def build(path):
          "One sentence with 396, the year 1990 and Flateyri, then “Heimild:” with the table name and link"],
     ]
     story.append(table(rows, [32 * mm, 120 * mm, width - 152 * mm],
-                       kinds=["rules", "rules", "rules", "llm", "rules", "data", "llm"]))
+                       kinds=["llm", "rules", "rules", "llm", "rules", "data", "llm"]))
     story.append(Spacer(1, 7 * mm))
     story.append(Paragraph("Why it is built this way", h2))
     for point in [
@@ -256,8 +256,8 @@ def build(path):
         "<b>Every answer shows its source</b>: table name, link, the chosen dimensions and the raw data rows (expandable in the web page).",
         "<b>Honest when data is missing</b>: if the year or the place is not in the table, the answer says so instead of guessing "
         "(e.g. a question about 2030 gets the newest year, 2026, with a note).",
-        "<b>Rules first, LLM where it helps</b>: rules are fast and predictable; the LLM handles the ambiguous parts "
-        "(choosing between similar tables, English questions, phrasing).",
+        "<b>Rules plus LLM where it helps</b>: rules are fast and predictable; the LLM handles the ambiguous parts "
+        "(understanding everyday or misspelled questions, choosing between similar tables, phrasing).",
         "<b>Keeps working if the LLM fails</b>: table choice falls back to the search order, and the answer falls back to showing the data.",
     ]:
         story.append(Paragraph("•  " + point, body))
