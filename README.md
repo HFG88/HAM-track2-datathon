@@ -43,7 +43,6 @@ question (Icelandic or English)
 ```bash
 git clone https://github.com/HFG88/HAM-track2-datathon.git
 cd HAM-track2-datathon
-git switch prototype          # if the work is not merged into main yet
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt

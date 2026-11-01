@@ -1,4 +1,4 @@
-# Prototype: the whole pipeline (branch `prototype`)
+# Prototype: the whole pipeline
 
 Visual overview with a diagram, a worked example and results: [prototype-overview.pdf](prototype-overview.pdf).
 
