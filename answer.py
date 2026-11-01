@@ -1,7 +1,8 @@
 """Answer a question end to end.
 
-question -> normalize -> search (top 10) -> LLM ranks tables -> selections
--> px_query (PX-API data) -> LLM writes the answer in Icelandic.
+question -> normalize + LLM keywords (question_router) -> search (top 10)
+-> LLM ranks tables -> selections -> px_query (PX-API data)
+-> LLM writes the answer in the question's language (Icelandic or English).
 
 build_selections() turns the normalised question into a value for every
 dimension of the chosen table, which px_query.query_table() requires:
@@ -12,6 +13,9 @@ dimension of the chosen table, which px_query.query_table() requires:
 
 Run from the project root (OLLAMA_HOST can point at another machine):
     python answer.py "Hvað búa margir í Kópavogi?"
+
+Models can be set with environment variables:
+    REWRITE_MODEL (keywords), TABLE_MODEL (table choice), ANSWER_MODEL (answer)
 """
 
 import argparse
@@ -24,13 +28,26 @@ import requests
 
 from normalize import BREAKDOWNS, QuestionError, clean, normalize_question, tokenize
 from px_query import PXQueryError, find_table, query_table
+from question_router import detect_language, rewrite_question
 from table_choice import choose_tables
+from table_search import is_time_variable
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 if "://" not in OLLAMA_HOST:  # the ollama CLI also accepts "host:port"
     OLLAMA_HOST = "http://" + OLLAMA_HOST
 OLLAMA_URL = OLLAMA_HOST + "/api/chat"
-MODEL = "qwen3:30b-a3b"
+# One model for every step, so the GPU never has to swap models between steps.
+# qwen3:32b wrote short, correct answers; qwen3:30b-a3b often rambled.
+MODEL = os.environ.get("MODEL", "qwen3:32b")
+REWRITE_MODEL = os.environ.get("REWRITE_MODEL", MODEL)
+TABLE_MODEL = os.environ.get("TABLE_MODEL", MODEL)
+ANSWER_MODEL = os.environ.get("ANSWER_MODEL", MODEL)
+
+# English breakdown names from normalize.py -> the Icelandic ones used in table variables.
+ENGLISH_BREAKDOWNS = {
+    "sex": "kyn", "age": "aldur", "municipality": "sveitarfelag", "region": "landsvaedi",
+    "nationality": "rikisfang", "education": "menntun", "industry": "atvinnugrein",
+}
 
 MAX_CELLS = 500
 MAX_MATCHED_VALUES = 10
@@ -45,6 +62,11 @@ Svaraðu spurningu notandans á íslensku, stutt og skýrt, EINGÖNGU út frá g
 - Ef gögnin svara spurningunni ekki að fullu, segðu það hreint út og hvað vantar. Ekki giska.
 - Ef athugasemdir fylgja (t.d. að umbeðið ár sé ekki til), taktu það fram.
 - Endaðu á línu sem byrjar á "Heimild:" með heiti töflunnar og slóðinni."""
+
+ENGLISH_INSTRUCTION = (
+    "The question is in English: write the answer in English, and start the "
+    'last line with "Source:" instead of "Heimild:".'
+)
 
 
 # ---------------------------------------------------------------- selections
@@ -61,7 +83,9 @@ def parse_period(code):
 def select_time(variable, time_info, intent):
     """Return (value codes, note or None) for the time dimension."""
     codes = variable["values"]
-    periods = [(code, parse_period(code)) for code in codes]
+    labels = variable.get("valueTexts") or codes
+    # Years are in the codes (2024M03) or, in many tables, only in the labels (code "13" = "2017").
+    periods = [(code, parse_period(code) or parse_period(label.strip())) for code, label in zip(codes, labels)]
     periods = [(code, p) for code, p in periods if p]
     if not periods:
         return [codes[-1]], None
@@ -89,11 +113,13 @@ def select_time(variable, time_info, intent):
         and (not quarters or quarter is None or quarter in quarters)
     ]
     if not chosen:
-        available = f"{periods[0][0]}–{newest}"
-        return [newest], f"Umbeðið tímabil er ekki í töflunni (hún nær yfir {available}); notað er nýjasta tímabilið, {newest}."
+        name = dict(zip(codes, labels))
+        available = f"{name[periods[0][0]]}–{name[newest]}"
+        return [newest], f"Umbeðið tímabil er ekki í töflunni (hún nær yfir {available}); notað er nýjasta tímabilið, {name[newest]}."
     if not months and not quarters:
         # Only years asked about in a monthly/quarterly table: take each year's last period.
-        chosen = last_period_per_year([(c, parse_period(c)) for c in chosen], years)
+        parsed = dict(periods)
+        chosen = last_period_per_year([(c, parsed[c]) for c in chosen], years)
     return chosen, None
 
 
@@ -119,7 +145,12 @@ def matching_values(variable, normalized):
     for code, label in zip(variable["values"], variable["valueTexts"]):
         tokens = tokenize(clean(label))
         cleaned = " ".join(tokens)
-        if any(p in cleaned for p in phrases) or any(t[:5] in stems for t in tokens if len(t) >= 4):
+        if (
+            any(p in cleaned for p in phrases)
+            or any(t[:5] in stems for t in tokens if len(t) >= 4)
+            # Compounds: "fluttu" ~ "Brottfluttir", "atvinnulausir" ~ "Atvinnulausir alls"
+            or any(stem in t for stem in stems for t in tokens if len(t) > len(stem) + 2)
+        ):
             matches.append(code)
     return matches
 
@@ -127,6 +158,7 @@ def matching_values(variable, normalized):
 def is_breakdown(variable, normalized):
     name = clean(variable.get("text", ""))
     for breakdown in normalized["breakdowns"]:
+        breakdown = ENGLISH_BREAKDOWNS.get(breakdown, breakdown)
         if any(prefix in name for prefix in BREAKDOWNS.get(breakdown, [breakdown])):
             return True
     return False
@@ -144,12 +176,39 @@ def default_value(variable, intent):
     return variable["values"][0]
 
 
+def place_names(normalized):
+    """Capitalised words in the question (not the first word), e.g. Austurlandi, Kópavogi."""
+    country = {"island", "islandi", "islands", "iceland", "icelandic"}
+    words = re.findall(r"\w+", normalized["original"])[1:]
+    return [clean(w) for w in words if w[:1].isupper() and not w.isupper() and clean(w) not in country]
+
+
+def unmatched_place_notes(normalized, table, selections):
+    """Notes for place names that no selected value matches, so the answer can't claim them."""
+    selected_labels = " ".join(
+        clean(label)
+        for variable in table["metadata"]["variables"]
+        for code, label in zip(variable["values"], variable["valueTexts"])
+        if code in selections.get(variable["code"], [])
+    )
+    title = clean(table["title"])
+    notes = []
+    for place in place_names(normalized):
+        stem = place[:5]
+        if stem not in selected_labels and stem not in title:
+            notes.append(
+                f"'{place}' fannst ekki í töflunni; tölurnar eiga EKKI sérstaklega við það, "
+                "heldur við heildina sem valin er. Segðu það skýrt í svarinu."
+            )
+    return notes
+
+
 def build_selections(normalized, table):
     """Return ({dimension code: [value codes]}, [notes in Icelandic])."""
     selections, notes = {}, []
     for variable in table["metadata"]["variables"]:
         code = variable["code"]
-        if variable.get("time") or code in ("Ár", "Mánuður", "Ársfjórðungur"):
+        if is_time_variable(variable):
             values, note = select_time(variable, normalized["time"], normalized["intent"])
             if note:
                 notes.append(note)
@@ -160,13 +219,14 @@ def build_selections(normalized, table):
             if not values:
                 values = [default_value(variable, normalized["intent"])]
         selections[code] = values
+    notes += unmatched_place_notes(normalized, table, selections)
     return selections, notes
 
 
 def shrink(selections, table):
     """If the query is too big, keep only the newest time period."""
     for variable in table["metadata"]["variables"]:
-        if variable.get("time") and len(selections[variable["code"]]) > 1:
+        if is_time_variable(variable) and len(selections[variable["code"]]) > 1:
             selections[variable["code"]] = selections[variable["code"]][-1:]
     return selections
 
@@ -207,7 +267,8 @@ def selection_text(selections, table):
 
 # ---------------------------------------------------------------- answer
 
-def write_answer(question, table, selections_text, notes, rows, model=MODEL, timeout=180):
+def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MODEL,
+                 language="is", timeout=180):
     context = "\n".join([
         f"Spurning: {question}",
         f"Tafla: {table['title']}",
@@ -222,7 +283,7 @@ def write_answer(question, table, selections_text, notes, rows, model=MODEL, tim
         json={
             "model": model,
             "messages": [
-                {"role": "system", "content": ANSWER_PROMPT},
+                {"role": "system", "content": ANSWER_PROMPT + ("\n" + ENGLISH_INSTRUCTION if language == "en" else "")},
                 # "/no_think" is Qwen 3's switch for answering without reasoning first.
                 {"role": "user", "content": context + "\n/no_think"},
             ],
@@ -234,7 +295,8 @@ def write_answer(question, table, selections_text, notes, rows, model=MODEL, tim
             },
             "stream": False,
             "think": False,
-            "options": {"temperature": 0.2, "num_predict": 600, "num_ctx": 8192},
+            "options": {"temperature": 0.2, "num_predict": 350, "repeat_penalty": 1.15,
+                        "num_ctx": 8192},
         },
         timeout=timeout,
     )
@@ -243,21 +305,40 @@ def write_answer(question, table, selections_text, notes, rows, model=MODEL, tim
     try:
         return json.loads(text)["svar"].strip()
     except (ValueError, KeyError):
+        if text.lstrip().startswith('{"svar"'):
+            # Cut off mid-answer: keep the complete sentences.
+            body = text.split(":", 1)[1].strip().lstrip('"')
+            return body[:body.rfind(".") + 1] or body
         # Some Qwen builds still write their reasoning; keep only what follows it.
         return text.split("</think>")[-1].strip()
 
 
-def answer_question(question, model=MODEL):
+def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MODEL,
+                    answer_model=ANSWER_MODEL):
     """Run the whole pipeline. Returns a dict with every step, for debugging and the frontend."""
     timings = {}
     start = time.time()
     try:
-        normalized = normalize_question(question)
+        if detect_language(question) == "en":
+            # English needs the LLM to translate keywords into Icelandic (ISKeywords).
+            normalized = rewrite_question(question, model=rewrite_model)
+        else:
+            # Icelandic: the rule-based normaliser is enough and saves an LLM call.
+            normalized = normalize_question(question)
+            normalized["language"] = "is"
     except QuestionError as error:
         return {"question": question, "answer": str(error), "error": "question"}
+    except (requests.RequestException, ValueError, KeyError):
+        # The keyword LLM failed: carry on with the rule-based normaliser alone.
+        try:
+            normalized = normalize_question(question)
+        except QuestionError as error:
+            return {"question": question, "answer": str(error), "error": "question"}
+    language = normalized.get("language", "is")
+    timings["rewrite"] = round(time.time() - start, 2)
 
-    ranked, candidates, how = choose_tables(normalized, model=model)
-    timings["table_choice"] = round(time.time() - start, 2)
+    ranked, candidates, how = choose_tables(normalized, model=table_model)
+    timings["table_choice"] = round(time.time() - start - timings["rewrite"], 2)
     if not ranked:
         return {"question": question, "answer": "Ég fann enga töflu sem passar við spurninguna.",
                 "error": "no_table"}
@@ -280,21 +361,27 @@ def answer_question(question, model=MODEL):
     else:
         return {"question": question, "answer": "Ekki tókst að sækja gögn frá Hagstofunni.",
                 "error": "px", "details": errors}
-    timings["px_query"] = round(time.time() - start - timings["table_choice"], 2)
+    timings["px_query"] = round(time.time() - start - sum(timings.values()), 2)
 
     rows = data_rows(result, table)
     chosen_selections = selection_text(selections, table)
     try:
-        answer = write_answer(question, table, chosen_selections, notes, rows, model=model)
+        answer = write_answer(question, table, chosen_selections, notes, rows,
+                              model=answer_model, language=language)
         answer_by = "llm"
+        if "Heimild" not in answer and "Source" not in answer:
+            label = "Source" if language == "en" else "Heimild"
+            answer += f"\n\n{label}: {table['title']}, {table['url']}"
     except (requests.RequestException, ValueError) as error:
         # The LLM is down or failed: show the numbers without prose rather than nothing.
         answer = "\n".join(notes + rows[:10] + [f"Heimild: {table['title']}, {table['url']}"])
         answer_by = f"template ({error})"
     timings["answer"] = round(time.time() - start - sum(timings.values()), 2)
+    timings["total"] = round(time.time() - start, 2)
 
     return {
         "question": question,
+        "language": language,
         "answer": answer,
         "table": {"id": table["id"], "title": table["title"], "url": table["url"]},
         "table_choice": how,
@@ -311,12 +398,11 @@ def answer_question(question, model=MODEL):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("questions", nargs="*")
-    parser.add_argument("--model", default=MODEL)
     parser.add_argument("--json", action="store_true", help="Print the full result as JSON")
     args = parser.parse_args()
 
     for question in args.questions or ["Hvað búa margir í Kópavogi?"]:
-        result = answer_question(question, model=args.model)
+        result = answer_question(question)
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
             continue

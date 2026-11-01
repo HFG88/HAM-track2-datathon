@@ -189,6 +189,9 @@ class TableIndex:
         penalty = 0.0
         if table.get("category") == "Sogulegar":
             penalty += HISTORICAL_PENALTY
+        # Revision tables ("breytt aðferðafræði: Ofmat á fjölda íbúa") are not the official figures.
+        if "/endurskodun/" in table["url"] or "ofmat" in clean(table["title"]):
+            penalty += HISTORICAL_PENALTY
         latest = latest_year(table)
         if latest and latest < date.today().year - OLD_AFTER_YEARS:
             penalty += OLD_PENALTY
@@ -198,20 +201,51 @@ class TableIndex:
         return penalty
 
 
+PERIOD = re.compile(r"^\d{4}(?:M\d{2}|\D?\d)?$")
+
+
+TIME_CODES = {"Ár", "Mánuður", "Ársfjórðungur", "Tími", "Ár og mánuður", "Year", "Month", "Quarter"}
+
+
+def is_time_variable(variable):
+    """True for the time dimension. About half the tables lack the "time" flag, and
+    many use codes 0, 1, 2 with the years only in the labels, so check codes and labels."""
+    if variable.get("time") or variable.get("code") in TIME_CODES:
+        return True
+    # Judge by the labels: codes can be 4-digit numbers that are not years
+    # (municipality 8722 = Flóahreppur).
+    labels = variable.get("valueTexts") or variable.get("values", [])
+    return bool(labels) and all(
+        PERIOD.match(str(label).strip()) and 1700 <= int(str(label).strip()[:4]) <= 2100
+        for label in labels
+    )
+
+
 def latest_year(table):
     """Newest year in the table, from the time variable if we have metadata."""
     for variable in (table.get("metadata") or {}).get("variables", []):
-        if variable.get("time") and variable.get("values"):
-            match = re.match(r"\d{4}", variable["values"][-1])
-            if match:
-                return int(match.group())
+        if is_time_variable(variable) and variable.get("values"):
+            for value in (variable["values"][-1], (variable.get("valueTexts") or [""])[-1]):
+                match = re.search(r"(?:18|19|20)\d{2}", str(value))
+                if match:
+                    return int(match.group())
     years = [int(y) for y in re.findall(r"\b(?:18|19|20)\d{2}\b", table["title"])]
     return max(years, default=None)
 
 
 def query_terms(normalized):
-    """The words from a normalised question that are used for searching."""
-    terms = normalized["keywords"] + normalized["expanded"] + normalized["breakdowns"]
+    """The words from a normalised question that are used for searching.
+
+    ISKeywords (Icelandic keywords from the LLM rewrite, see question_router.py)
+    are included when present, so English questions can match Icelandic titles.
+    """
+    if normalized.get("language") == "en":
+        # English words don't occur in the Icelandic titles; rely on the translations.
+        terms = list(normalized["expanded"])
+    else:
+        terms = normalized["keywords"] + normalized["expanded"] + normalized["breakdowns"]
+    for keyword in normalized.get("ISKeywords", []):
+        terms += tokenize(clean(keyword))
     return list(dict.fromkeys(t for t in terms if not t.isdigit()))
 
 
@@ -343,7 +377,7 @@ def describe_candidates(results, examples=4):
         period = None
         for variable in (table.get("metadata") or {}).get("variables", []):
             labels = variable.get("valueTexts", [])
-            if variable.get("time"):
+            if is_time_variable(variable):
                 period = f"{labels[0]} – {labels[-1]}" if labels else None
                 continue
             variables.append({
