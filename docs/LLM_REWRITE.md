@@ -6,7 +6,8 @@ When a question comes in, `normalize.py` cleans it and pulls out keywords, years
 
 The problem is that people use everyday words while table titles use official terms. Someone asks *"Hvað eru margir án vinnu?"*, but the table is called *Atvinnuleysi…*. Our synonym list only covers words we thought of in advance.
 
-`llm_rewrite.py` asks a local LLM (Llama via Ollama) for **extra search words** to close that gap. The LLM only adds words. It never picks the table and never touches the data.
+`llm_rewrite_is.py` asks a local LLM (via Ollama) for **extra search words** to close that gap. It accepts Icelandic questions and returns Icelandic and English keywords.
+`llm_rewrite_en.py` is the English-input version: it accepts an English question and returns aligned Icelandic and English keyword pairs. Both modules only add search words; they never pick the table or touch the data.
 
 ## Why English?
 
@@ -32,7 +33,7 @@ Hagstofa has an English API with the **same table ids**: `https://px.hagstofa.is
 
 ```python
 from normalize import normalize_question
-from llm_rewrite import rewrite
+from llm_rewrite_is import rewrite
 
 result = rewrite(normalize_question("Hvað eru margir án vinnu?"))
 result["llm_keywords_en"]   # ["unemployment", "labour", "force"]
@@ -53,11 +54,42 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull llama3.2:3b
 
 # Run the test questions
-python llm_rewrite.py
-python llm_rewrite.py "Your own question here?"
+python llm_rewrite_is.py
+python llm_rewrite_is.py "Your own question here?"
 ```
 
-To change the model, edit `MODEL` at the top of `llm_rewrite.py`. Nothing else needs to change: all the models below work with the same code.
+To change the model, edit `MODEL` at the top of `llm_rewrite_is.py`. Nothing else needs to change: all the models below work with the same code.
+
+For English questions, run:
+
+```bash
+python llm_rewrite_en.py "How many people are unemployed?"
+```
+
+Or call it from Python:
+
+```python
+from llm_rewrite_en import rewrite
+
+result = rewrite("How many people are unemployed?")
+result["ISKeywords"]  # e.g. ["atvinnuleysi", "atvinnuleitendur"]
+result["ENKeywords"]  # e.g. ["unemployment", "jobseekers"]
+```
+
+To automatically choose the Icelandic or English pipeline, use
+`question_router.py`:
+
+```bash
+python question_router.py "Hvað eru margir án vinnu?"
+python question_router.py "How many people are unemployed?"
+```
+
+The router detects the language, runs Icelandic questions through
+`normalize.py` and `llm_rewrite_is.py`, and sends English questions to
+`llm_rewrite_en.py`. Detection is a lightweight heuristic based on common
+question/topic words and Icelandic characters. In either case, the returned
+JSON includes the normalizer fields (`keywords`, `time`, `intent`, etc.) plus
+`ISKeywords` and `ENKeywords`.
 
 ## Models to try
 
@@ -80,7 +112,7 @@ For a neutral comparison of models on Icelandic, see Miðeind's leaderboard: htt
 
 ## Your tasks
 
-1. **Compare models.** Run `python llm_rewrite.py` with each model you can fit. For each one, write down how many of the 7 questions got good keywords (tourism and teacher wages are the hard ones) and how many seconds per question. On a laptop without a GPU, Llama 3B took ~2 s.
+1. **Compare models.** Run `python llm_rewrite_is.py` with each model you can fit. For each one, write down how many of the 7 questions got good keywords (tourism and teacher wages are the hard ones) and how many seconds per question. On a laptop without a GPU, Llama 3B took ~2 s.
 2. **Try Icelandic keywords with Gemma.** Change `SYSTEM_PROMPT` to ask for Icelandic keywords in nominative form, e.g. *"án vinnu"* → *"atvinnuleysi"*. If Gemma gives real Icelandic words (Llama 3B made up words like *"útlagisbær"*), we may not need the English catalog at all.
 3. **Improve the prompt.** Change `SYSTEM_PROMPT` and `EXAMPLES`. Adding more example question/keyword pairs usually helps the most.
 4. **Try more questions**, especially everyday wording (*"án vinnu"*, *"leigja"*, *"ferðamenn"*), since that's where the LLM should help.
