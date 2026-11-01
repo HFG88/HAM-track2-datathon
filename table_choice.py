@@ -14,6 +14,7 @@ Run from the project root:
 
 import argparse
 import os
+import re
 import json
 import sys
 import time
@@ -21,7 +22,7 @@ import time
 import requests
 
 from normalize import QuestionError, clean, normalize_question
-from table_search import describe_candidates, latest_year, load_tables, search_tables
+from table_search import describe_candidates, earliest_year, latest_year, load_tables, search_tables
 
 # Where Ollama runs. Set OLLAMA_HOST to use another machine, e.g. through an SSH tunnel.
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
@@ -70,9 +71,25 @@ The question is in Icelandic. You get a numbered list of tables with their title
 time period and variables. Pick the table that contains the data needed to answer
 the question. Prefer tables that cover the years asked about and have the needed
 breakdown (e.g. sveitarfélag, kyn, aldur). Prefer current tables over old ones.
+If a table "inniheldur" (contains) a place named in the question, strongly prefer it.
 Prefer the main, general table for a topic. Avoid methodology or revision tables
 ("breytt aðferðafræði", "Ofmat") and historical tables unless the question asks for them.
 Answer only with JSON listing the best tables, best first: {"tables": [<number>, ...]}"""
+
+
+def place_values(table, normalized, limit=3):
+    """Values in the table that match a capitalised word in the question, e.g. "Flateyri"."""
+    words = re.findall(r"\w+", normalized["original"])[1:]
+    stems = {clean(w)[:5] for w in words if w[:1].isupper() and len(w) >= 4}
+    if not stems:
+        return []
+    found = []
+    for variable in (table.get("metadata") or {}).get("variables", []):
+        for label in variable.get("valueTexts", []):
+            first = clean(label).strip()[:5]
+            if first in stems and label.strip() not in found:
+                found.append(label.strip())
+    return found[:limit]
 
 
 def format_candidates(candidates):
@@ -80,7 +97,8 @@ def format_candidates(candidates):
     for number, candidate in enumerate(candidates, start=1):
         variables = ", ".join(v["name"] for v in candidate["variables"])
         period = f" [{candidate['period']}]" if candidate["period"] else ""
-        lines.append(f"{number}. {candidate['title']}{period} | {variables}")
+        places = f" | inniheldur: {', '.join(candidate['places'])}" if candidate.get("places") else ""
+        lines.append(f"{number}. {candidate['title']}{period} | {variables}{places}")
     return "\n".join(lines)
 
 
@@ -98,10 +116,14 @@ def candidate_tables(normalized, limit):
     results = main + search_tables(normalized, limit=limit * 3, mode="hybrid")
 
     # Drop tables that end before the newest year asked about (unless nothing is left).
+    # Drop tables that don't cover the years asked about (unless nothing is left).
     asked = normalized["time"]["years"]
     if asked:
-        recent = [(t, s) for t, s in results if (latest_year(t) or 9999) >= max(asked)]
-        results = recent or results
+        covering = [
+            (t, s) for t, s in results
+            if (latest_year(t) or 9999) >= max(asked) and (earliest_year(t) or 0) <= min(asked)
+        ]
+        results = covering or results
 
     seen, unique = set(), []
     for table, score in results:
@@ -143,7 +165,10 @@ def ask_llm(question, candidates, model=MODEL, top=TOP_TABLES, timeout=180):
 
 def choose_tables(normalized, model=MODEL, candidates=CANDIDATES, top=TOP_TABLES):
     """Return (ranked tables, all candidates, how they were chosen). Best table first."""
-    options = describe_candidates(candidate_tables(normalized, candidates))
+    tables = candidate_tables(normalized, candidates)
+    options = describe_candidates(tables)
+    for option, (table, _) in zip(options, tables):
+        option["places"] = place_values(table, normalized)
     if not options:
         return [], options, "no candidates"
     try:

@@ -734,3 +734,4 @@ h1 span {
 .answer-details { margin-top: 1rem; font-size: 0.9rem; }
 .answer-details summary { cursor: pointer; font-weight: 600; }
 .answer-details pre { white-space: pre-wrap; font-size: 0.8rem; background: rgba(0,0,0,0.04); padding: 0.75rem; border-radius: 8px; overflow-x: auto; }
+.answer-question { margin: 1.25rem 0 0.25rem; font-size: 1rem; font-weight: 700; }

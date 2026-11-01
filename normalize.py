@@ -324,6 +324,13 @@ def normalize_question(question):
 
     phrases = [f"{a} {b}" for a, b in zip(keywords, keywords[1:])]
 
+    # "Hvað áttu margir heima á X?" (eiga heima = live): a population question.
+    # Drop "heima" itself, or it matches "Fjarvinna heima" (working from home).
+    eiga_forms = {"eiga", "eigi", "eigum", "attu", "atti", "attum", "eigu"}
+    if "heima" in tokens and eiga_forms & set(tokens):
+        keywords = [k for k in keywords if k != "heima" and k not in eiga_forms]
+        keywords.append("mannfjoldi")
+
     expanded = []
     for word in keywords:
         for synonym in SYNONYMS.get(word, []):

@@ -221,6 +221,18 @@ def is_time_variable(variable):
     )
 
 
+def earliest_year(table):
+    """Oldest year in the table, from the time variable if we have metadata."""
+    for variable in (table.get("metadata") or {}).get("variables", []):
+        if is_time_variable(variable) and variable.get("values"):
+            for value in (variable["values"][0], (variable.get("valueTexts") or [""])[0]):
+                match = re.search(r"(?:18|19|20)\d{2}", str(value))
+                if match:
+                    return int(match.group())
+    years = [int(y) for y in re.findall(r"\b(?:18|19|20)\d{2}\b", table["title"])]
+    return min(years, default=None)
+
+
 def latest_year(table):
     """Newest year in the table, from the time variable if we have metadata."""
     for variable in (table.get("metadata") or {}).get("variables", []):

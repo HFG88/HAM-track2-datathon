@@ -141,6 +141,15 @@ def matching_values(variable, normalized):
     words = [w for w in normalized["keywords"] if len(w) >= 4 and not w.isdigit()]
     stems = {w[:5] for w in words}
     phrases = normalized["phrases"]
+
+    # Whole-word matches first: "Flateyri" should not also pick "Flatey á Breiðafirði".
+    exact = [
+        code for code, label in zip(variable["values"], variable["valueTexts"])
+        if set(words) & set(tokenize(clean(label)))
+    ]
+    if exact:
+        return exact
+
     matches = []
     for code, label in zip(variable["values"], variable["valueTexts"]):
         tokens = tokenize(clean(label))
@@ -416,6 +425,20 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
         "normalized": normalized,
         "timings": timings,
     }
+
+
+MAX_QUESTIONS = 5
+
+
+def split_questions(text):
+    """Split a prompt into separate questions: after each "?" and on new lines."""
+    parts = re.split(r"(?<=\?)\s+|\n+", text.strip())
+    return [p.strip() for p in parts if len(p.strip()) > 3][:MAX_QUESTIONS] or [text.strip()]
+
+
+def answer_questions(text, **models):
+    """Answer every question in the prompt; returns one result per question."""
+    return [answer_question(question, **models) for question in split_questions(text)]
 
 
 if __name__ == "__main__":

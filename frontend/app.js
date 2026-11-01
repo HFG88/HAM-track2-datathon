@@ -38,39 +38,11 @@ form.addEventListener("submit", async (event) => {
     const heading = document.createElement("h2");
     heading.className = "answer-heading";
     heading.textContent = "Niðurstaða";
-    const answerText = document.createElement("p");
-    answerText.className = "answer-text";
-    answerText.textContent = data.svar;
-    answerText.style.whiteSpace = "pre-line";
-    answer.append(heading, answerText);
+    answer.append(heading);
 
-    if (data.tafla && data.tafla.title) {
-      const details = document.createElement("details");
-      details.className = "answer-details";
-      const summary = document.createElement("summary");
-      summary.textContent = `Tafla: ${data.tafla.title} (${data.tafla.id})`;
-      details.append(summary);
-
-      const lines = [];
-      if (data["víddir"]) lines.push(`Valdar víddir: ${data["víddir"]}`);
-      (data.athugasemdir || []).forEach((note) => lines.push(`Athugasemd: ${note}`));
-      (data["gögn"] || []).forEach((row) => lines.push(row));
-      if (data["tími"]) lines.push(`Tími: ${data["tími"].total ?? "?"} s`);
-      const pre = document.createElement("pre");
-      pre.textContent = lines.join("\n");
-      details.append(pre);
-      answer.append(details);
-    }
-
-    if (data["töflu_slóð"]) {
-      const source = document.createElement("a");
-      source.className = "source-link";
-      source.href = data["töflu_slóð"];
-      source.textContent = "Skoða töflu hjá Hagstofunni";
-      source.target = "_blank";
-      source.rel = "noopener";
-      answer.append(source);
-    }
+    // Several questions in one prompt come back as a list in "svör".
+    const results = data["svör"] || [data];
+    results.forEach((result) => renderResult(result, results.length > 1));
   } catch (error) {
     status.classList.add("status--error");
     status.textContent = `Ekki tókst að sækja svar: ${error.message}`;
@@ -78,3 +50,45 @@ form.addEventListener("submit", async (event) => {
     submitButton.disabled = false;
   }
 });
+function renderResult(data, showQuestion) {
+  if (showQuestion && data.spurning) {
+    const question = document.createElement("h3");
+    question.className = "answer-question";
+    question.textContent = data.spurning;
+    answer.append(question);
+  }
+
+  const answerText = document.createElement("p");
+  answerText.className = "answer-text";
+  answerText.textContent = data.svar;
+  answerText.style.whiteSpace = "pre-line";
+  answer.append(answerText);
+
+  if (data.tafla && data.tafla.title) {
+    const details = document.createElement("details");
+    details.className = "answer-details";
+    const summary = document.createElement("summary");
+    summary.textContent = `Tafla: ${data.tafla.title} (${data.tafla.id})`;
+    details.append(summary);
+
+    const lines = [];
+    if (data["víddir"]) lines.push(`Valdar víddir: ${data["víddir"]}`);
+    (data.athugasemdir || []).forEach((note) => lines.push(`Athugasemd: ${note}`));
+    (data["gögn"] || []).forEach((row) => lines.push(row));
+    if (data["tími"]) lines.push(`Tími: ${data["tími"].total ?? "?"} s`);
+    const pre = document.createElement("pre");
+    pre.textContent = lines.join("\n");
+    details.append(pre);
+    answer.append(details);
+  }
+
+  if (data["töflu_slóð"]) {
+    const source = document.createElement("a");
+    source.className = "source-link";
+    source.href = data["töflu_slóð"];
+    source.textContent = "Skoða töflu hjá Hagstofunni";
+    source.target = "_blank";
+    source.rel = "noopener";
+    answer.append(source);
+  }
+}
