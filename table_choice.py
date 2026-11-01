@@ -1,10 +1,11 @@
-"""Let an LLM pick the right table from the search candidates.
+"""Let an LLM rank the search candidates and pick the best tables.
 
 The search (table_search.py) is good at getting the right table into the top N
 but often ranks a near miss first. Here the LLM sees the question and the N
-candidates (title, period, variable names) and answers with the number of
-the best one. If the LLM fails or answers with something invalid, the
-search's #1 is used.
+candidates (title, period, variable names) and answers with the numbers of
+the best tables, best first (up to TOP_TABLES). The first one is used; the
+others are backups, e.g. if the PX query on the first fails. If the LLM fails
+or answers with something invalid, the search's own order is used.
 
 Run from the project root:
     python table_choice.py "Hvað búa margir í Kópavogi?"
@@ -27,15 +28,16 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/"
 if "://" not in OLLAMA_HOST:  # the ollama CLI also accepts "host:port"
     OLLAMA_HOST = "http://" + OLLAMA_HOST
 OLLAMA_URL = OLLAMA_HOST + "/api/chat"
-MODEL = "qwen3:4b"
+MODEL = "qwen3:30b-a3b"
 CANDIDATES = 10
+TOP_TABLES = 3
 
 SYSTEM_PROMPT = """You choose which Statistics Iceland (Hagstofa) table best answers a question.
 The question is in Icelandic. You get a numbered list of tables with their title,
 time period and variables. Pick the table that contains the data needed to answer
 the question. Prefer tables that cover the years asked about and have the needed
 breakdown (e.g. sveitarfélag, kyn, aldur). Prefer current tables over old ones.
-Answer only with JSON: {"table": <number>}"""
+Answer only with JSON listing the best tables, best first: {"tables": [<number>, ...]}"""
 
 
 def format_candidates(candidates):
@@ -47,8 +49,8 @@ def format_candidates(candidates):
     return "\n".join(lines)
 
 
-def ask_llm(question, candidates, model=MODEL, timeout=120):
-    """Return the 1-based number the LLM picked."""
+def ask_llm(question, candidates, model=MODEL, top=TOP_TABLES, timeout=180):
+    """Return the 1-based numbers the LLM picked, best first."""
     prompt = f"Question: {question}\n\nTables:\n{format_candidates(candidates)}"
     response = requests.post(
         OLLAMA_URL,
@@ -58,34 +60,48 @@ def ask_llm(question, candidates, model=MODEL, timeout=120):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            # A JSON schema makes Ollama only produce {"table": <integer>}.
+            # A JSON schema makes Ollama only produce {"tables": [<integer>, ...]}.
             "format": {
                 "type": "object",
-                "properties": {"table": {"type": "integer"}},
-                "required": ["table"],
+                "properties": {
+                    "tables": {"type": "array", "items": {"type": "integer"}, "maxItems": top},
+                },
+                "required": ["tables"],
             },
             "stream": False,
             "think": False,
-            "options": {"temperature": 0, "num_predict": 30, "num_ctx": 8192},
+            "options": {"temperature": 0, "num_predict": 40, "num_ctx": 8192},
         },
         timeout=timeout,
     )
     response.raise_for_status()
-    return int(json.loads(response.json()["message"]["content"])["table"])
+    numbers = json.loads(response.json()["message"]["content"])["tables"]
+    return [int(n) for n in numbers]
+
+
+def choose_tables(normalized, model=MODEL, candidates=CANDIDATES, top=TOP_TABLES):
+    """Return (ranked tables, all candidates, how they were chosen). Best table first."""
+    options = describe_candidates(search_tables(normalized, limit=candidates, mode="hybrid"))
+    if not options:
+        return [], options, "no candidates"
+    try:
+        numbers = ask_llm(normalized["original"], options, model=model, top=top)
+    except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+        return options[:top], options, f"fallback: {error}"
+
+    picked = []
+    for number in numbers:
+        if 1 <= number <= len(options) and options[number - 1] not in picked:
+            picked.append(options[number - 1])
+    if not picked:
+        return options[:top], options, f"fallback: invalid answer {numbers}"
+    return picked[:top], options, "llm"
 
 
 def choose_table(normalized, model=MODEL, candidates=CANDIDATES):
-    """Return (chosen candidate, all candidates, how it was chosen)."""
-    options = describe_candidates(search_tables(normalized, limit=candidates, mode="hybrid"))
-    if not options:
-        return None, options, "no candidates"
-    try:
-        number = ask_llm(normalized["original"], options, model=model)
-    except (requests.RequestException, ValueError, KeyError, TypeError) as error:
-        return options[0], options, f"fallback: {error}"
-    if not 1 <= number <= len(options):
-        return options[0], options, f"fallback: invalid number {number}"
-    return options[number - 1], options, "llm"
+    """Return (best table, all candidates, how it was chosen)."""
+    ranked, options, how = choose_tables(normalized, model=model, candidates=candidates)
+    return (ranked[0] if ranked else None), options, how
 
 
 def evaluate(model, candidates, limit=None):
@@ -93,7 +109,7 @@ def evaluate(model, candidates, limit=None):
 
     for name, questions in test_sets().items():
         items = list(questions.items())[:limit]
-        search_top1 = llm_top1 = in_candidates = fallbacks = 0
+        search_top1 = search_top3 = llm_top1 = llm_top3 = in_candidates = fallbacks = 0
         start = time.time()
 
         for question, expected in items:
@@ -101,20 +117,23 @@ def evaluate(model, candidates, limit=None):
                 normalized = normalize_question(question)
             except QuestionError:
                 continue
-            chosen, options, how = choose_table(normalized, model=model, candidates=candidates)
+            ranked, options, how = choose_tables(normalized, model=model, candidates=candidates)
             if not options:
                 continue
             search_top1 += options[0]["id"] in expected
+            search_top3 += any(o["id"] in expected for o in options[:3])
             in_candidates += any(o["id"] in expected for o in options)
-            llm_top1 += chosen["id"] in expected
+            llm_top1 += ranked[0]["id"] in expected
+            llm_top3 += any(o["id"] in expected for o in ranked[:3])
             fallbacks += how != "llm"
 
-        seconds = (time.time() - start) / max(len(items), 1)
+        n = len(items)
+        seconds = (time.time() - start) / max(n, 1)
         print(
-            f"{name:11} {model} N={candidates:<3} "
-            f"search #1: {search_top1}/{len(items)}   LLM pick: {llm_top1}/{len(items)}   "
-            f"right table among candidates: {in_candidates}/{len(items)}   "
-            f"fallbacks: {fallbacks}   ({seconds:.1f} s per question)",
+            f"{name:11} {model:14} N={candidates:<3} "
+            f"#1 search {search_top1}/{n} vs LLM {llm_top1}/{n}   "
+            f"top3 search {search_top3}/{n} vs LLM {llm_top3}/{n}   "
+            f"in candidates {in_candidates}/{n}   fallbacks {fallbacks}   ({seconds:.1f} s/question)",
             flush=True,
         )
 
@@ -133,9 +152,10 @@ if __name__ == "__main__":
         sys.exit()
 
     for question in args.questions or ["Hvað búa margir í Kópavogi?"]:
-        chosen, options, how = choose_table(normalize_question(question), args.model, args.candidates)
+        ranked, options, how = choose_tables(normalize_question(question), args.model, args.candidates)
         print(question)
         for number, option in enumerate(options, start=1):
-            marker = "→" if option is chosen else " "
+            rank = next((i + 1 for i, r in enumerate(ranked) if r is option), None)
+            marker = f"#{rank}" if rank else "  "
             print(f" {marker} {number:2}. {option['id']:13} {option['title'][:80]}")
         print(f"   ({how})")
