@@ -221,7 +221,7 @@ def build(path):
     story.append(Paragraph(
         "Our Track 2 prototype answers questions about Icelandic statistics in Icelandic or English. "
         "The numbers always come straight from Hagstofa's PX-API; the language model only "
-        "<b>chooses the table</b> and <b>phrases the answer</b>.", subtitle))
+        "<b>reads the question</b>, <b>chooses the table</b> and <b>phrases the answer</b>.", subtitle))
     story.append(Spacer(1, 8 * mm))
     story.append(PipelineDiagram(width, 140 * mm))
 
