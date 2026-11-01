@@ -1,4 +1,5 @@
 
+import argparse
 import time
 import json
 import re
@@ -9,12 +10,16 @@ from urllib.parse import quote
 
 import requests
 
-BASE_URL = "https://px.hagstofa.is/pxis/api/v1/is/"
+BASE_URLS = {
+    "is": "https://px.hagstofa.is/pxis/api/v1/is/",
+    "en": "https://px.hagstofa.is/pxen/api/v1/en/",
+}
+BASE_URL = BASE_URLS["is"]  # Keep existing imports/callers compatible.
 
 
-def get_catalog_level(session, path):
+def get_catalog_level(session, path, base_url=BASE_URL):
     """Retrieve one directory from the Statistics Iceland API."""
-    url = BASE_URL + "/".join(quote(p, safe="") for p in path)
+    url = base_url + "/".join(quote(p, safe="") for p in path)
 
     response = session.get(url, timeout=20)
     response.raise_for_status()
@@ -26,11 +31,13 @@ def get_catalog_level(session, path):
     return entries
 
 
-def crawl_tables(start=None, max_directories=None):
-    """Discover tables recursively within a directory limit."""
+def crawl_tables(start=None, max_directories=None, language="is"):
+    """Discover tables in Icelandic or English using the official PxWeb APIs."""
+    base_url = BASE_URLS[language]
     stack = [start.strip("/").split("/")] if start else [[]]
     visited = set()
     tables = []
+    category_labels = {}
 
     with requests.Session() as session:
         while stack and (max_directories is None or len(visited) < max_directories):
@@ -41,7 +48,12 @@ def crawl_tables(start=None, max_directories=None):
                 continue
 
             print(f"Scanning: {path_string}")
-            entries = get_catalog_level(session, path)
+            entries = get_catalog_level(session, path, base_url=base_url)
+            if not path:
+                category_labels = {
+                    entry.get("id") or entry.get("dbid"): entry.get("text", "")
+                    for entry in entries
+                }
             visited.add(path_string)
 
             for entry in reversed(entries):
@@ -57,10 +69,12 @@ def crawl_tables(start=None, max_directories=None):
                     tables.append({
                         "id": entry_id,
                         "title": entry.get("text", ""),
-                        "url": BASE_URL + "/".join(
+                        "url": base_url + "/".join(
                             quote(p, safe="") for p in child_path
                         ),
                         "category": path[0] if path else entry_id,
+                        "category_label": category_labels.get(path[0], path[0])
+                        if path else entry.get("text", ""),
                     })
 
                 elif entry_type in ("l", None):
@@ -153,16 +167,27 @@ def search_catalog(tables, question, limit=10):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Crawl Statistics Iceland's PxWeb table catalogue")
+    parser.add_argument("--language", choices=("is", "en"), default="is")
+    parser.add_argument("--start", default=None, help="Optional starting category/path")
+    parser.add_argument("--max-directories", type=int, default=None, help="Limit folders for a test crawl")
+    parser.add_argument("--output", default=None, help="Output JSON path")
+    args = parser.parse_args()
+
     tables = crawl_tables(
-        start=None,
-        max_directories=None
+        start=args.start,
+        max_directories=args.max_directories,
+        language=args.language,
     )
 
-    save_catalog(tables, "local/catalog-full.json")
+    default_output = (
+        "local/catalog-full-en.json" if args.language == "en"
+        else "local/catalog-full.json"
+    )
+    save_catalog(tables, args.output or default_output)
 
     categories = sorted(set(t["category"] for t in tables))
-
     print("\n=== CRAWL COMPLETE ===")
+    print(f"Language: {args.language}")
     print(f"Total tables: {len(tables)}")
     print(f"Categories: {categories}")
-

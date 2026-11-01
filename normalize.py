@@ -30,7 +30,7 @@ STOPWORDS = {
     "er", "eru", "var", "voru", "verid", "vera", "hefur", "hafa", "hafi", "getur",
     # prepositions and conjunctions
     "a", "i", "ad", "af", "um", "til", "fra", "med", "vid", "fyrir", "sem", "og",
-    "eda", "en", "eftir", "milli", "a", "the", "of", "in",
+    "eda", "en", "eftir", "milli", "an", "a", "the", "of", "in",
     # time words (handled by time)
     "ar", "arid", "arinu", "arin", "ari", "arum", "sidustu", "sidasta", "sidasti",
     "nyjustu", "nyjasta", "nyjast", "fyrra", "nuna", "dag", "manud", "manudi", "manudum",
