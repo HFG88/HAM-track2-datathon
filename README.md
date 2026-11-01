@@ -8,7 +8,7 @@ A chatbot that answers questions about Icelandic statistics in **Icelandic or En
 
 The language model never makes up numbers: it only reads the question, chooses the table and phrases the answer. Every number comes from the PX-API, and the page shows the exact table, the selected dimensions and the raw data behind each answer.
 
-📄 **Visual overview (diagram, worked example, results):** [docs/prototype-overview.pdf](docs/prototype-overview.pdf)
+📄 **Project summary for the committee:** [SUBMISSION.md](SUBMISSION.md) · **Visual overview (diagram, worked example, results):** [docs/prototype-overview.pdf](docs/prototype-overview.pdf)
 
 ---
 
