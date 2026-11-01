@@ -1,16 +1,20 @@
 """Find the Hagstofa tables that best match a normalised question.
 
 Two searches, which can be combined with reciprocal rank fusion (RRF).
-BM25 is the default: on eval_search.py it beats both vectors and hybrid.
+Cascade is the default: on AI_test/spurningar.txt it ranks the right table
+first most often (37/83, vs 33/83 for BM25 alone and 36/83 for hybrid).
 
 - BM25 over character 4-grams, so different Icelandic word endings and
   compounds still match ("atvinnulausra" ~ "atvinnuleysi"). Each table is
   indexed in four fields with different weights: title, folder path, variable
   names and value labels.
 - Vector search: each table's title, folders and variable names are embedded
-  with a multilingual model (bge-m3 via Ollama), and compared with the
-  embedded question. This catches meaning that shares no letters with the
-  title. Vectors are cached in local/table-vectors.npz.
+  with a multilingual model (qwen3-embedding via Ollama), and compared with
+  the embedded question. This catches meaning that shares no letters with
+  the title. Vectors are cached in local/.
+
+Modes: "bm25", "vector", "hybrid" (RRF of both) and "cascade" (vectors pick
+the topic, then BM25 ranks the tables within it).
 
 Input is the dict from normalize.normalize_question().
 """
@@ -33,14 +37,23 @@ from normalize import QuestionError, clean, normalize_question, tokenize
 LOCAL = Path(__file__).parent / "local"
 CATALOG_PATHS = [LOCAL / "catalog-enriched.json", LOCAL / "catalog-full.json"]
 
-VECTORS_PATH = LOCAL / "table-vectors.npz"
 OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
-EMBED_MODEL = "bge-m3"
+EMBED_MODEL = "qwen3-embedding:0.6b"
 EMBED_BATCH = 32
+# Qwen3 embeddings work best when the question says what it is looking for.
+QUERY_INSTRUCTION = (
+    "Instruct: Given a question about Icelandic official statistics, "
+    "retrieve the title of the statistics table that answers it\nQuery: "
+)
+# What each table is represented by in vector search: "title" or "full"
+# (title, folder names and variable names).
+VECTOR_TEXT = "title"
+# Cascade: how many vector results BM25 gets to rank.
+CASCADE_CANDIDATES = 100
 
 # RRF: each search adds 1 / (RRF_K + rank). Tables found by both rise to the top.
 RRF_K = 60
-CANDIDATES = 50
+CANDIDATES = 100
 # How much vector search counts in hybrid compared to BM25 (1.0).
 VECTOR_WEIGHT = 0.25
 
@@ -193,14 +206,14 @@ def query_terms(normalized):
     return list(dict.fromkeys(t for t in terms if not t.isdigit()))
 
 
-def embed(texts):
+def embed(texts, model=None):
     """Embed a list of texts with Ollama. Returns an array of unit vectors."""
     vectors = []
     for i in range(0, len(texts), EMBED_BATCH):
         response = requests.post(
             OLLAMA_EMBED_URL,
-            json={"model": EMBED_MODEL, "input": texts[i:i + EMBED_BATCH]},
-            timeout=300,
+            json={"model": model or EMBED_MODEL, "input": texts[i:i + EMBED_BATCH]},
+            timeout=600,
         )
         response.raise_for_status()
         vectors.extend(response.json()["embeddings"])
@@ -208,29 +221,40 @@ def embed(texts):
     return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
 
-def table_text(table):
+def table_text(table, kind=None):
     """The text that represents a table in vector search."""
+    if (kind or VECTOR_TEXT) == "title":
+        return table["title"]
     fields = table_fields(table)
     return f"{table['title']}. {fields['path']}. {fields['variables']}"
 
 
+def vectors_path(model, kind):
+    safe = "".join(c if c.isalnum() else "-" for c in model)
+    return LOCAL / f"table-vectors-{safe}-{kind}.npz"
+
+
 class VectorIndex:
-    def __init__(self, tables, path=VECTORS_PATH):
+    def __init__(self, tables, model=None, kind=None):
         self.tables = tables
+        self.model = model or EMBED_MODEL
+        kind = kind or VECTOR_TEXT
+        path = vectors_path(self.model, kind)
         urls = [t["url"] for t in tables]
 
         if path.exists():
             cached = np.load(path)
-            if list(cached["urls"]) == urls and str(cached["model"]) == EMBED_MODEL:
+            if list(cached["urls"]) == urls:
                 self.vectors = cached["vectors"]
                 return
 
-        print(f"Embedding {len(tables)} tables with {EMBED_MODEL} (one-time)...", file=sys.stderr)
-        self.vectors = embed([table_text(t) for t in tables])
-        np.savez(path, vectors=self.vectors, urls=np.array(urls), model=EMBED_MODEL)
+        print(f"Embedding {len(tables)} tables with {self.model} ({kind}, one-time)...", file=sys.stderr)
+        self.vectors = embed([table_text(t, kind) for t in tables], self.model)
+        np.savez(path, vectors=self.vectors, urls=np.array(urls))
 
     def search(self, question, limit=10):
-        query = embed([question])[0]
+        prefix = QUERY_INSTRUCTION if "qwen" in self.model else ""
+        query = embed([prefix + question], self.model)[0]
         similarity = self.vectors @ query
         best = np.argsort(-similarity)[:limit]
         return [(self.tables[i], round(float(similarity[i]), 3)) for i in best]
@@ -249,9 +273,9 @@ def default_index():
     return TableIndex(load_tables())
 
 
-@lru_cache(maxsize=1)
-def default_vectors():
-    return VectorIndex(load_tables())
+@lru_cache(maxsize=4)
+def default_vectors(model=None, kind=None):
+    return VectorIndex(load_tables(), model or EMBED_MODEL, kind or VECTOR_TEXT)
 
 
 def rrf(rankings, weights, limit=10):
@@ -266,8 +290,8 @@ def rrf(rankings, weights, limit=10):
     return [(tables[url], round(score, 4)) for url, score in best]
 
 
-def search_tables(normalized, limit=10, mode="bm25"):
-    """mode: "bm25", "vector" or "hybrid" (both, combined with RRF)."""
+def search_tables(normalized, limit=10, mode="cascade"):
+    """mode: "bm25", "vector", "hybrid" (RRF of both) or "cascade" (vectors, then BM25)."""
     if mode == "bm25":
         return default_index().search(normalized, limit)
 
@@ -280,8 +304,19 @@ def search_tables(normalized, limit=10, mode="bm25"):
 
     if mode == "vector":
         return vector_results[:limit]
-    bm25_results = default_index().search(normalized, CANDIDATES)
-    return rrf([bm25_results, vector_results], [1.0, VECTOR_WEIGHT], limit=limit)
+
+    bm25_results = default_index().search(normalized, len(default_index().tables))
+    if mode == "cascade":
+        # Vectors decide the topic, BM25 decides the table within it.
+        bm25_scores = {table["url"]: score for table, score in bm25_results}
+        candidates = vector_results[:CASCADE_CANDIDATES]
+        ranked = sorted(
+            candidates,
+            key=lambda item: -bm25_scores.get(item[0]["url"], float("-inf")),
+        )
+        return [(table, bm25_scores.get(table["url"], 0.0)) for table, _ in ranked[:limit]]
+
+    return rrf([bm25_results[:CANDIDATES], vector_results], [1.0, VECTOR_WEIGHT], limit=limit)
 
 
 def describe_candidates(results, examples=4):
@@ -316,8 +351,8 @@ def describe_candidates(results, examples=4):
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    mode = "bm25"
-    if args and args[0] in ("--bm25", "--vector", "--hybrid"):
+    mode = "cascade"
+    if args and args[0] in ("--bm25", "--vector", "--hybrid", "--cascade"):
         mode = args.pop(0)[2:]
     questions = args or ["Hver er mannfjöldi í Kópavogi?"]
     for question in questions:

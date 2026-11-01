@@ -1,13 +1,19 @@
 """Measure how often table_search finds the right table.
 
-Each question lists the table ids that are an acceptable answer. Run:
-    python eval_search.py                  # compare bm25, vector and hybrid
-    python eval_search.py -v               # also show the top 3 for every miss
-    python eval_search.py -v --bm25        # only one mode
+Two test sets, where each question lists the table ids that are an acceptable answer:
+- "mine": 24 short questions in this file
+- "spurningar": 83 questions from AI_test/spurningar.txt
+
+Run:
+    python eval_search.py                        # all modes on both sets
+    python eval_search.py --cascade --bm25       # only some modes
+    python eval_search.py --spurningar -v        # one set, show the top 3 for every miss
 """
 
+import re
 import sys
 import time
+from pathlib import Path
 
 from normalize import QuestionError, normalize_question
 from table_search import search_tables
@@ -66,12 +72,40 @@ TEST_QUESTIONS = {
 }
 
 
-def evaluate(mode="hybrid", verbose=False, k=5):
+SPURNINGAR_PATH = Path(__file__).parent / "AI_test" / "spurningar.txt"
+
+
+def load_spurningar(path=SPURNINGAR_PATH):
+    """Read topic lines like "Name (MAN001, MAN002)" and the numbered questions under them."""
+    questions = {}
+    expected = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        topic = re.match(r"^\S.*\(([A-Z0-9, ]+)\)\s*$", line)
+        if topic:
+            expected = [f"{i.strip()}.px" for i in topic.group(1).split(",")]
+            continue
+        question = re.match(r"^\s+\d+\.\s+(.*)$", line)
+        if question and expected:
+            # Some questions also name a table themselves, e.g. "(SAM02001)".
+            extra = [f"{i}.px" for i in re.findall(r"\b([A-Z]{3}\d{4,6}[A-Za-z]?)\b", question.group(1))]
+            questions[question.group(1)] = expected + extra
+    return questions
+
+
+def test_sets():
+    sets = {"mine": TEST_QUESTIONS}
+    if SPURNINGAR_PATH.exists():
+        sets["spurningar"] = load_spurningar()
+    return sets
+
+
+def evaluate(mode="hybrid", verbose=False, k=5, questions=None, name=""):
     top1 = topk = 0
     misses = []
     start = time.time()
 
-    for question, expected in TEST_QUESTIONS.items():
+    questions = questions or TEST_QUESTIONS
+    for question, expected in questions.items():
         try:
             results = search_tables(normalize_question(question), limit=k, mode=mode)
         except QuestionError:
@@ -86,9 +120,9 @@ def evaluate(mode="hybrid", verbose=False, k=5):
         if rank != 1:
             misses.append((question, rank, results))
 
-    total = len(TEST_QUESTIONS)
+    total = len(questions)
     seconds = (time.time() - start) / total
-    print(f"{mode:7}  Top 1: {top1}/{total}   Top {k}: {topk}/{total}   ({seconds:.2f} s per question)")
+    print(f"{name:11} {mode:8} Top 1: {top1}/{total}   Top {k}: {topk}/{total}   ({seconds:.2f} s per question)")
 
     if verbose:
         for question, rank, results in misses:
@@ -101,6 +135,10 @@ def evaluate(mode="hybrid", verbose=False, k=5):
 
 
 if __name__ == "__main__":
-    modes = [m[2:] for m in sys.argv[1:] if m in ("--bm25", "--vector", "--hybrid")]
-    for mode in modes or ["bm25", "vector", "hybrid"]:
-        evaluate(mode, verbose="-v" in sys.argv)
+    all_modes = ["bm25", "vector", "hybrid", "cascade"]
+    modes = [m[2:] for m in sys.argv[1:] if m[2:] in all_modes]
+    sets = test_sets()
+    chosen = [name for name in sets if f"--{name}" in sys.argv] or list(sets)
+    for name in chosen:
+        for mode in modes or all_modes:
+            evaluate(mode, verbose="-v" in sys.argv, questions=sets[name], name=name)
