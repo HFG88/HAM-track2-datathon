@@ -39,6 +39,8 @@ ollama_lock = threading.Lock()
 
 class SpurningRequest(BaseModel):
     spurning: str
+    # "hratt" (fast), "venjulegt" (normal, default) or "itarlegt" (thorough: the model thinks)
+    hamur: str = "venjulegt"
 
 
 def to_response(result):
@@ -55,6 +57,7 @@ def to_response(result):
         "gögn": result.get("data", [])[:20],
         "gagnatafla": result.get("data_table"),
         "tungumál": result.get("language"),
+        "hamur": result.get("mode"),
         "þýðing": result.get("translation"),
         "tími": result.get("timings"),
         "villa": result.get("error"),
@@ -65,7 +68,7 @@ def to_response(result):
 def spyrja_px_api(req: SpurningRequest):
     # Several questions in one prompt ("…? …?") are answered one by one.
     with ollama_lock:
-        results = [to_response(r) for r in answer_questions(req.spurning)]
+        results = [to_response(r) for r in answer_questions(req.spurning, mode=req.hamur)]
 
     if len(results) == 1:
         return results[0]

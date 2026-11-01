@@ -748,3 +748,7 @@ h1 span {
 .data-table th:last-child { text-align: right; }
 .data-time { margin: 0.5rem 0 0; font-size: 0.75rem; color: #7b8794; }
 .data-table tr.sum-row td { border-top: 2px solid #9fb3c4; background: #eef6f1; font-weight: 700; }
+.mode-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; border: 0; padding: 0; margin: 0.6rem 0 0; font-size: 0.85rem; color: #52606d; }
+.mode-picker legend { float: left; margin-right: 0.25rem; font-weight: 600; padding: 0; }
+.mode-picker label { display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+.mode-picker small { color: #7b8794; }

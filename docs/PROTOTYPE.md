@@ -28,10 +28,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**2. Catalog files in `local/`** (not in git; get them from a teammate or build them):
-- `local/catalog-enriched.json`: tables with metadata (`python catalog.py`, then `python enrich_catalog.py`)
-- `local/catalog-full.json`
-- `local/table-vectors-qwen3-embedding-0-6b-title.npz`: vector index, built automatically on first run (~8 min on a laptop, much faster on the GPU machine)
+**2. Catalog files:** nothing to do. The catalog snapshot and the vector index are shipped in `data/` and unpacked into `local/` on first start (`local_data.py`). To rebuild from the PX-API: `python catalog.py`, then `python enrich_catalog.py`.
 
 **3. Ollama with `qwen3:32b`, `qwen3:30b-a3b` and `qwen3-embedding:0.6b`.** We run them on the GB10 machine and reach it through an SSH tunnel:
 ```bash
@@ -50,6 +47,10 @@ OLLAMA_HOST=localhost:11435 python answer.py "Hvað búa margir í Kópavogi?"
 curl -X POST http://127.0.0.1:8000/spyrja_px_api -H "Content-Type: application/json" \
      -d '{"spurning": "Hver var verðbólgan á Íslandi árið 2024?"}'
 ```
+
+## Speed or quality
+
+The page has a switch and the API takes `"hamur"`: `hratt` (fast model for every step), `venjulegt` (default) or `itarlegt` (qwen3:32b thinks before choosing the table and writing; slowest).
 
 ## Settings (environment variables)
 

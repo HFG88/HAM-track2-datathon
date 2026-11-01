@@ -32,8 +32,12 @@ from datetime import date
 from normalize import BREAKDOWNS, MONTHS, QuestionError, clean, normalize_question, tokenize
 from px_query import PXQueryError, find_table, query_table
 from question_router import detect_language, rewrite_question
+from local_data import ensure_local_data
 from table_choice import choose_tables
 from table_search import is_time_variable
+
+# A fresh clone has the catalog and vectors packed in data/: unpack them into local/.
+ensure_local_data()
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 if "://" not in OLLAMA_HOST:  # the ollama CLI also accepts "host:port"
@@ -45,6 +49,21 @@ MODEL = os.environ.get("MODEL", "qwen3:32b")
 REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "qwen3:30b-a3b")
 TABLE_MODEL = os.environ.get("TABLE_MODEL", MODEL)
 ANSWER_MODEL = os.environ.get("ANSWER_MODEL", MODEL)
+
+# Speed/quality modes the user can pick.
+FAST_MODEL = os.environ.get("FAST_MODEL", "qwen3:30b-a3b")
+MODES = {
+    # One fast model for everything: about twice as fast, slightly worse table choice.
+    "hratt": {"rewrite_model": FAST_MODEL, "table_model": FAST_MODEL, "answer_model": FAST_MODEL,
+              "think": False, "candidates": 10},
+    # The tested default: fast model for translation, qwen3:32b for table choice and answer.
+    "venjulegt": {"rewrite_model": REWRITE_MODEL, "table_model": TABLE_MODEL, "answer_model": ANSWER_MODEL,
+                  "think": False, "candidates": 10},
+    # qwen3:32b thinks before choosing the table and writing: slowest, for hard questions.
+    "itarlegt": {"rewrite_model": REWRITE_MODEL, "table_model": TABLE_MODEL, "answer_model": ANSWER_MODEL,
+                 "think": True, "candidates": 15},
+}
+DEFAULT_MODE = "venjulegt"
 
 # English breakdown names from normalize.py -> the Icelandic ones used in table variables.
 ENGLISH_BREAKDOWNS = {
@@ -497,7 +516,7 @@ def selection_text(selections, table):
 
 # ---------------------------------------------------------------- answer
 
-def ask_for_answer(context, system, model, timeout):
+def ask_for_answer(context, system, model, timeout, think=False):
     """One LLM call; returns the answer text (or the raw output if it isn't valid JSON)."""
     response = requests.post(
         OLLAMA_URL,
@@ -506,18 +525,19 @@ def ask_for_answer(context, system, model, timeout):
             "messages": [
                 {"role": "system", "content": system},
                 # "/no_think" is Qwen 3's switch for answering without reasoning first.
-                {"role": "user", "content": context + "\n/no_think"},
+                {"role": "user", "content": context + ("" if think else "\n/no_think")},
             ],
             # A JSON schema stops "thinking" models from writing out their reasoning.
+            # With think=True, Ollama returns the reasoning separately from the answer.
             "format": {
                 "type": "object",
                 "properties": {"svar": {"type": "string"}},
                 "required": ["svar"],
             },
             "stream": False,
-            "think": False,
-            "options": {"temperature": 0.2, "num_predict": 350, "repeat_penalty": 1.15,
-                        "num_ctx": 8192},
+            "think": think,
+            "options": {"temperature": 0.2, "num_predict": 4000 if think else 350,
+                        "repeat_penalty": 1.15, "num_ctx": 8192},
         },
         timeout=timeout,
     )
@@ -540,7 +560,7 @@ def echoes_rows(answer):
 
 
 def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MODEL,
-                 language="is", timeout=180):
+                 language="is", think=False, timeout=300):
     context = "\n".join([
         f"Dagsetning í dag: {date.today().isoformat()} (tölur fyrir liðin tímabil eru rauntölur, ekki spár)",
         f"Spurning: {question}",
@@ -552,11 +572,11 @@ def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MOD
         *rows,
     ])
     system = ANSWER_PROMPT + ("\n" + ENGLISH_INSTRUCTION if language == "en" else "")
-    answer = ask_for_answer(context, system, model, timeout)
+    answer = ask_for_answer(context, system, model, timeout, think=think)
     if echoes_rows(answer):
         retry = ("\nEkki afrita gagnalínurnar. Skrifaðu eina eða tvær heilar setningar sem "
                  "svara spurningunni með tölunum, og leggðu saman ef spurt er um heildina.")
-        answer = ask_for_answer(context, system + retry, model, timeout)
+        answer = ask_for_answer(context, system + retry, model, timeout, think=think)
     if echoes_rows(answer):
         raise ValueError("the model repeated the data rows instead of answering")
     return answer
@@ -662,9 +682,14 @@ def has_numbers(result):
     return False
 
 
-def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MODEL,
-                    answer_model=ANSWER_MODEL):
-    """Run the whole pipeline. Returns a dict with every step, for debugging and the frontend."""
+def answer_question(question, mode=DEFAULT_MODE):
+    """Run the whole pipeline. Returns a dict with every step, for debugging and the frontend.
+
+    mode: "hratt" (fast), "venjulegt" (normal) or "itarlegt" (thorough, the model thinks).
+    """
+    settings = MODES.get(mode, MODES[DEFAULT_MODE])
+    rewrite_model, table_model = settings["rewrite_model"], settings["table_model"]
+    answer_model, think = settings["answer_model"], settings["think"]
     timings = {}
     start = time.time()
     language = detect_language(question)
@@ -702,7 +727,8 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
     normalized["language"] = language
     timings["rewrite"] = round(time.time() - start, 2)
 
-    ranked, candidates, how = choose_tables(normalized, model=table_model)
+    ranked, candidates, how = choose_tables(normalized, model=table_model,
+                                            candidates=settings["candidates"], think=think)
     timings["table_choice"] = round(time.time() - start - timings["rewrite"], 2)
     if not ranked:
         return {"question": question, "answer": "Ég fann enga töflu sem passar við spurninguna.",
@@ -742,7 +768,7 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
     chosen_selections = selection_text(selections, table)
     try:
         answer = write_answer(question, table, chosen_selections, notes, rows,
-                              model=answer_model, language=language)
+                              model=answer_model, language=language, think=think)
         if not answer.strip():
             raise ValueError("empty answer")
         answer_by = "llm"
@@ -758,6 +784,7 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
 
     return {
         "question": question,
+        "mode": mode if mode in MODES else DEFAULT_MODE,
         "translation": translation,
         "language": language,
         "answer": answer,
@@ -784,19 +811,20 @@ def split_questions(text):
     return [p.strip() for p in parts if len(p.strip()) > 3][:MAX_QUESTIONS] or [text.strip()]
 
 
-def answer_questions(text, **models):
+def answer_questions(text, mode=DEFAULT_MODE):
     """Answer every question in the prompt; returns one result per question."""
-    return [answer_question(question, **models) for question in split_questions(text)]
+    return [answer_question(question, mode=mode) for question in split_questions(text)]
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("questions", nargs="*")
     parser.add_argument("--json", action="store_true", help="Print the full result as JSON")
+    parser.add_argument("--mode", choices=list(MODES), default=DEFAULT_MODE)
     args = parser.parse_args()
 
     for question in args.questions or ["Hvað búa margir í Kópavogi?"]:
-        result = answer_question(question)
+        result = answer_question(question, mode=args.mode)
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
             continue

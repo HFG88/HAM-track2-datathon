@@ -14,7 +14,8 @@ document.querySelectorAll(".suggestion").forEach((suggestion) => {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   status.classList.remove("status--error");
-  status.textContent = "Leita að svari…";
+  const thorough = (document.querySelector('input[name="hamur"]:checked') || {}).value === "itarlegt";
+  status.textContent = thorough ? "Hugsa um svarið… (getur tekið allt að mínútu)" : "Leita að svari…";
   answer.replaceChildren();
   submitButton.disabled = true;
 
@@ -26,7 +27,10 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spurning: questionInput.value })
+      body: JSON.stringify({
+        spurning: questionInput.value,
+        hamur: (document.querySelector('input[name="hamur"]:checked') || {}).value || "venjulegt"
+      })
     });
 
     if (!response.ok) {
