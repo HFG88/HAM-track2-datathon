@@ -1,8 +1,10 @@
 """Find the Hagstofa tables that best match a normalised question.
 
 Two searches, which can be combined with reciprocal rank fusion (RRF).
-Cascade is the default: on AI_test/spurningar.txt it ranks the right table
-first most often (37/83, vs 33/83 for BM25 alone and 36/83 for hybrid).
+Hybrid is the default. On AI_test/spurningar.txt the modes are close at #1
+(BM25 33/83, hybrid 36/83, cascade 37/83), but hybrid most often has the right
+table among its top 10-20 (55/83 and 60/83), which is what the LLM choice in
+table_choice.py picks from. Cascade drops the right table on short questions.
 
 - BM25 over character 4-grams, so different Icelandic word endings and
   compounds still match ("atvinnulausra" ~ "atvinnuleysi"). Each table is
@@ -50,6 +52,8 @@ QUERY_INSTRUCTION = (
 VECTOR_TEXT = "title"
 # Cascade: how many vector results BM25 gets to rank.
 CASCADE_CANDIDATES = 100
+# Cascade: how many of BM25's own top tables are kept even if vectors missed them.
+CASCADE_BM25_KEEP = 0
 
 # RRF: each search adds 1 / (RRF_K + rank). Tables found by both rise to the top.
 RRF_K = 60
@@ -290,7 +294,7 @@ def rrf(rankings, weights, limit=10):
     return [(tables[url], round(score, 4)) for url, score in best]
 
 
-def search_tables(normalized, limit=10, mode="cascade"):
+def search_tables(normalized, limit=10, mode="hybrid"):
     """mode: "bm25", "vector", "hybrid" (RRF of both) or "cascade" (vectors, then BM25)."""
     if mode == "bm25":
         return default_index().search(normalized, limit)
@@ -310,6 +314,10 @@ def search_tables(normalized, limit=10, mode="cascade"):
         # Vectors decide the topic, BM25 decides the table within it.
         bm25_scores = {table["url"]: score for table, score in bm25_results}
         candidates = vector_results[:CASCADE_CANDIDATES]
+        # Also keep BM25's own best tables: vectors miss e.g. which tables have
+        # a municipality like "Kópavogur" among their values.
+        seen = {table["url"] for table, _ in candidates}
+        candidates += [item for item in bm25_results[:CASCADE_BM25_KEEP] if item[0]["url"] not in seen]
         ranked = sorted(
             candidates,
             key=lambda item: -bm25_scores.get(item[0]["url"], float("-inf")),
@@ -351,7 +359,7 @@ def describe_candidates(results, examples=4):
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    mode = "cascade"
+    mode = "hybrid"
     if args and args[0] in ("--bm25", "--vector", "--hybrid", "--cascade"):
         mode = args.pop(0)[2:]
     questions = args or ["Hver er mannfjöldi í Kópavogi?"]
