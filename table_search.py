@@ -210,8 +210,12 @@ TIME_CODES = {"Ár", "Mánuður", "Ársfjórðungur", "Tími", "Ár og mánuður
 def is_time_variable(variable):
     """True for the time dimension. About half the tables lack the "time" flag, and
     many use codes 0, 1, 2 with the years only in the labels, so check codes and labels."""
-    if variable.get("time") or variable.get("code") in TIME_CODES:
+    if variable.get("time"):
         return True
+    if variable.get("code") in TIME_CODES:
+        # "Mánuður" can also be month names (Janúar, Febrúar …) next to a separate "Ár".
+        labels = variable.get("valueTexts") or variable.get("values", [])
+        return any(PERIOD.match(str(label).strip()) for label in labels)
     # Judge by the labels: codes can be 4-digit numbers that are not years
     # (municipality 8722 = Flóahreppur).
     labels = variable.get("valueTexts") or variable.get("values", [])

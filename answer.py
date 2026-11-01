@@ -27,7 +27,9 @@ import time
 
 import requests
 
-from normalize import BREAKDOWNS, QuestionError, clean, normalize_question, tokenize
+from datetime import date
+
+from normalize import BREAKDOWNS, MONTHS, QuestionError, clean, normalize_question, tokenize
 from px_query import PXQueryError, find_table, query_table
 from question_router import detect_language, rewrite_question
 from table_choice import choose_tables
@@ -57,11 +59,22 @@ MAX_DATA_ROWS = 80
 
 TOTAL_LABELS = ("alls", "samtals", "allir", "allt landid", "landid allt", "heild")
 
+ICELANDIC_MONTHS = ["januar", "februar", "mars", "april", "mai", "juni",
+                    "juli", "agust", "september", "oktober", "november", "desember"]
+
+# Tables that count things happening over a period (people arriving, nights, catch,
+# births ...): a year is the sum of its months. Other tables (population, prices,
+# indices, rates) are a state at a point in time: a year is its last period.
+FLOW_STEMS = ("farthega", "komur", "gistin", "gestakom", "afli", "faedd", "danir",
+              "flutning", "utflutn", "innflutn", "velta", "ferdir", "ferda ")
+
 ANSWER_PROMPT = """Þú ert Hagur, aðstoðarmaður Hagstofu Íslands.
 Svaraðu spurningu notandans á íslensku, stutt og skýrt, EINGÖNGU út frá gögnunum sem fylgja.
 - Nefndu tölurnar með einingu (t.d. fjöldi, %, krónur, vísitölustig) og tímabilinu sem þær eiga við.
 - Ef gögnin svara spurningunni ekki að fullu, segðu það hreint út og hvað vantar. Ekki giska.
 - Ef athugasemdir fylgja (t.d. að umbeðið ár sé ekki til), taktu það fram.
+- Ekki finna upp einingar: ef eining (t.d. tonn, kg, krónur, þúsundir) kemur ekki fram í
+  gögnunum eða heiti töflunnar, nefndu töluna án einingar.
 - Endaðu á línu sem byrjar á "Heimild:" með heiti töflunnar og slóðinni."""
 
 ENGLISH_INSTRUCTION = (
@@ -81,26 +94,31 @@ def parse_period(code):
     return int(year), int(month) if month else None, int(quarter) if quarter else None
 
 
-def select_time(variable, time_info, intent):
-    """Return (value codes, note or None) for the time dimension."""
+def select_time(variable, time_info, intent, flow=False):
+    """Return (value codes, note or None, summed) for the time dimension.
+
+    summed is True when the periods of each year should be added up (flows).
+    """
     codes = variable["values"]
     labels = variable.get("valueTexts") or codes
     # Years are in the codes (2024M03) or, in many tables, only in the labels (code "13" = "2017").
     periods = [(code, parse_period(code) or parse_period(label.strip())) for code, label in zip(codes, labels)]
     periods = [(code, p) for code, p in periods if p]
     if not periods:
-        return [codes[-1]], None
+        return [codes[-1]], None, False
     newest = periods[-1][0]
+    sub_annual = any(month or quarter for _, (_, month, quarter) in periods)
 
     relative = time_info["relative"]
-    if isinstance(relative, dict):
-        count = relative.get("last") or 5
-        if relative["unit"] == "year":
-            years = sorted({p[0] for _, p in periods})[-count:]
-            return last_period_per_year(periods, years), None
-        return [code for code, _ in periods[-count:]], None
-    if relative == "latest" or not time_info["years"]:
-        return [newest], None
+    if not time_info["years"]:
+        # Explicit years win over "latest" ("last year" gives both 2025 and last-1).
+        if isinstance(relative, dict):
+            count = relative.get("last") or 5
+            if relative["unit"] == "year":
+                years = sorted({p[0] for _, p in periods})[-count:]
+                return last_period_per_year(periods, years), None, False
+            return [code for code, _ in periods[-count:]], None, False
+        return [newest], None, False
 
     years = set(time_info["years"])
     if intent == "change" and len(years) == 1:
@@ -116,12 +134,16 @@ def select_time(variable, time_info, intent):
     if not chosen:
         name = dict(zip(codes, labels))
         available = f"{name[periods[0][0]]}–{name[newest]}"
-        return [newest], f"Umbeðið tímabil er ekki í töflunni (hún nær yfir {available}); notað er nýjasta tímabilið, {name[newest]}."
-    if not months and not quarters:
-        # Only years asked about in a monthly/quarterly table: take each year's last period.
+        return ([newest], f"Umbeðið tímabil er ekki í töflunni (hún nær yfir {available}); "
+                f"notað er nýjasta tímabilið, {name[newest]}.", False)
+    if sub_annual and not months and not quarters:
         parsed = dict(periods)
+        if flow and len(chosen) <= 5 * 12:
+            # A whole year of a flow: fetch every month and add them up.
+            return chosen, None, True
+        # A whole year of a state (population, index): its last period.
         chosen = last_period_per_year([(c, parsed[c]) for c in chosen], years)
-    return chosen, None
+    return chosen, None, False
 
 
 def last_period_per_year(periods, years):
@@ -133,8 +155,12 @@ def last_period_per_year(periods, years):
 
 
 def is_total(label):
+    """"Alls", "Allir", "Samtals …" – and also "Farþegar alls", "Grunnlaun - alls"."""
     text = " ".join(tokenize(clean(label)))
-    return any(text == t or text.startswith(t + " ") for t in TOTAL_LABELS)
+    return any(
+        text == t or text.startswith(t + " ") or text.endswith(" " + t)
+        for t in TOTAL_LABELS
+    )
 
 
 def matching_values(variable, normalized):
@@ -155,30 +181,50 @@ def matching_values(variable, normalized):
 
 
 def match_words(variable, words, phrases):
-    """Values whose label contains one of the words: whole words first, then stems."""
+    """Values whose label contains one of the words, best kind of match only:
+    whole word > start of a word > inside a compound word."""
     # Short words lose their last letter too: "konum" ~ "konur", "kyni" ~ "kyn".
     stems = {w[:max(4, min(5, len(w) - 1))] for w in words}
+    labelled = [(code, tokenize(clean(label))) for code, label in zip(variable["values"], variable["valueTexts"])]
 
     # Whole-word matches first: "Flateyri" should not also pick "Flatey á Breiðafirði".
-    exact = [
-        code for code, label in zip(variable["values"], variable["valueTexts"])
-        if set(words) & set(tokenize(clean(label)))
-    ]
+    exact = [code for code, tokens in labelled if set(words) & set(tokens)]
     if exact:
         return exact
+    phrased = [code for code, tokens in labelled if any(p in " ".join(tokens) for p in phrases)]
+    if phrased:
+        return phrased
 
-    matches = []
-    for code, label in zip(variable["values"], variable["valueTexts"]):
-        tokens = tokenize(clean(label))
-        cleaned = " ".join(tokens)
-        if (
-            any(p in cleaned for p in phrases)
-            or any(t[:len(stem)] == stem for stem in stems for t in tokens if len(t) >= 4)
-            # Compounds: "fluttu" ~ "Brottfluttir", "atvinnulausir" ~ "Atvinnulausir alls"
-            or any(stem in t for stem in stems for t in tokens if len(t) > len(stem) + 2)
-        ):
-            matches.append(code)
-    return matches
+    # Start of a word. Keep only the labels that share the longest beginning with a
+    # question word: "reykjavik" ~ "Reykjavíkurborg" (9 letters), not "Reykjanesbær" (5).
+    def shared(word, token):
+        n = 0
+        while n < min(len(word), len(token)) and word[n] == token[n]:
+            n += 1
+        return n
+
+    prefix = {}
+    for code, tokens in labelled:
+        best = max(
+            (shared(w, t) for w in words for t in tokens
+             if len(t) >= 4 and t.startswith(w[:max(4, min(5, len(w) - 1))])),
+            default=0,
+        )
+        if best:
+            prefix[code] = best
+    if prefix:
+        longest = max(prefix.values())
+        return [code for code, length in prefix.items() if length == longest]
+
+    # Compounds: "fluttu" ~ "Brottfluttir". Only when there is no total to fall back on:
+    # "ferðamenn" must not pick "Skemmtiferðaskip" over "Alls".
+    if any(is_total(label) for label in variable["valueTexts"]):
+        return []
+    # Short stems ("land") are too common inside other words ("Finnland", "Holland").
+    return [
+        code for code, tokens in labelled
+        if any(stem in t for stem in stems if len(stem) >= 5 for t in tokens if len(t) > len(stem) + 2)
+    ]
 
 
 def is_breakdown(variable, normalized):
@@ -206,7 +252,11 @@ def place_names(normalized):
     """Capitalised words in the question (not the first word), e.g. Austurlandi, Kópavogi."""
     country = {"island", "islandi", "islands", "iceland", "icelandic"}
     words = re.findall(r"\w+", normalized["original"])[1:]
-    return [clean(w) for w in words if w[:1].isupper() and not w.isupper() and clean(w) not in country]
+    return [
+        clean(w) for w in words
+        if w[:1].isupper() and not w.isupper() and clean(w) not in country
+        and not any(clean(w).startswith(month) for month in MONTHS)  # "January", "Júlí"
+    ]
 
 
 def unmatched_place_notes(normalized, table, selections):
@@ -229,15 +279,76 @@ def unmatched_place_notes(normalized, table, selections):
     return notes
 
 
+def is_month_name_variable(variable):
+    """A dimension whose values are month names: "Allir, Janúar, Febrúar, …"."""
+    named = sum(
+        1 for label in variable.get("valueTexts", [])
+        if any(clean(label).strip().startswith(month) for month in ICELANDIC_MONTHS)
+    )
+    return named >= 6
+
+
+def select_month_names(variable, time_info):
+    wanted = [ICELANDIC_MONTHS[int(m) - 1] for m in time_info["months"]]
+    chosen = [
+        code for code, label in zip(variable["values"], variable["valueTexts"])
+        if any(clean(label).strip().startswith(month) for month in wanted)
+    ]
+    return chosen or [default_value(variable, "value")]
+
+
+AGE_LABEL = re.compile(r"^\s*(\d+)\s+ar")
+
+
+def age_range(normalized):
+    """(lowest, highest) age asked about, e.g. "eldri en 67" -> (68, None), or None."""
+    text = " ".join(clean(t) for t in (normalized["original"], normalized.get("question_is", "")))
+    low = high = None
+    if m := re.search(r"\b(eldri en|older than|over|yfir|above) (\d+)", text):
+        low = int(m.group(2)) + 1
+    if m := re.search(r"\b(\d+) (ara|years?)(?: old)? (og eldri|and older|or older)", text):
+        low = int(m.group(1))
+    if m := re.search(r"\b(yngri en|younger than|under|undir|below) (\d+)", text):
+        high = int(m.group(2)) - 1
+    return (low, high) if low is not None or high is not None else None
+
+
+def select_ages(variable, bounds):
+    """Single-year ages ("67 ára") within the bounds, or None if the dimension isn't like that."""
+    low, high = bounds
+    chosen = []
+    for code, label in zip(variable["values"], variable["valueTexts"]):
+        match = AGE_LABEL.match(clean(label))
+        if match:
+            age = int(match.group(1))
+            if (low is None or age >= low) and (high is None or age <= high):
+                chosen.append(code)
+    return chosen or None
+
+
+def is_flow(table):
+    title = clean(table["title"]) + " "
+    return any(stem in title for stem in FLOW_STEMS)
+
+
 def build_selections(normalized, table):
-    """Return ({dimension code: [value codes]}, [notes in Icelandic])."""
-    selections, notes = {}, []
+    """Return ({dimension code: [value codes]}, [notes in Icelandic], {dimension code: why summed})."""
+    selections, notes, summed = {}, [], {}
+    ages = age_range(normalized)
     for variable in table["metadata"]["variables"]:
         code = variable["code"]
-        if is_time_variable(variable):
-            values, note = select_time(variable, normalized["time"], normalized["intent"])
+        if is_month_name_variable(variable):
+            values = select_month_names(variable, normalized["time"])
+        elif is_time_variable(variable):
+            values, note, sum_years = select_time(
+                variable, normalized["time"], normalized["intent"], flow=is_flow(table))
             if note:
                 notes.append(note)
+            if sum_years:
+                summed[code] = "year"
+        elif ages and clean(variable.get("text", "")).startswith("aldur") and select_ages(variable, ages):
+            values = select_ages(variable, ages)
+            summed[code] = "age"
         elif is_breakdown(variable, normalized) and len(variable["values"]) <= MAX_BREAKDOWN_VALUES:
             values = list(variable["values"])
         else:
@@ -251,7 +362,7 @@ def build_selections(normalized, table):
                 values = [default_value(variable, normalized["intent"])]
         selections[code] = values
     notes += unmatched_place_notes(normalized, table, selections)
-    return selections, notes
+    return selections, notes, summed
 
 
 def shrink(selections, table):
@@ -431,6 +542,7 @@ def echoes_rows(answer):
 def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MODEL,
                  language="is", timeout=180):
     context = "\n".join([
+        f"Dagsetning í dag: {date.today().isoformat()} (tölur fyrir liðin tímabil eru rauntölur, ekki spár)",
         f"Spurning: {question}",
         f"Tafla: {table['title']}",
         f"Slóð: {table['url']}",
@@ -498,6 +610,46 @@ def translate_to_english(question, model=REWRITE_MODEL, timeout=120):
     return english, keywords
 
 
+def sum_rows(result, table, summed):
+    """Add up rows over the summed dimensions: the months of a year (flows) or an age range.
+
+    Returns [{"label": "2024", "value": "2345678"}, ...], one per group of the other dimensions.
+    """
+    if not summed:
+        return []
+    names = {v["code"]: dict(zip(v["values"], v["valueTexts"])) for v in table["metadata"]["variables"]}
+    key_columns = [c for c in result["columns"] if c["type"] in ("d", "t")]
+    groups = {}
+    for item in result["data"]:
+        parts = []
+        for column, key in zip(key_columns, item["key"]):
+            label = names.get(column["code"], {}).get(key, key).strip()
+            how = summed.get(column["code"])
+            if how == "age":
+                continue
+            if how == "year":
+                period = parse_period(key) or parse_period(label)
+                label = str(period[0]) if period else label
+            parts.append(label)
+        total = groups.setdefault(tuple(parts), 0.0)
+        for value in item["values"]:
+            try:
+                groups[tuple(parts)] = total + float(value)
+            except (TypeError, ValueError):
+                pass
+    descriptions = []
+    if "year" in summed.values():
+        descriptions.append("allir mánuðir ársins")
+    if "age" in summed.values():
+        descriptions.append("öll aldursár á bilinu")
+    suffix = f" ({', '.join(descriptions)})"
+    return [
+        {"label": " / ".join(p for p in parts if p) + suffix,
+         "value": str(int(total)) if float(total).is_integer() else f"{total:.2f}"}
+        for parts, total in groups.items()
+    ]
+
+
 def has_numbers(result):
     """True if at least one returned cell is a number (PX uses "..", "-" etc. for missing)."""
     for item in result.get("data", []):
@@ -525,6 +677,7 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
             translation, is_keywords = translate_to_english(question, model=rewrite_model)
             normalized = normalize_question(translation)
             normalized["ISKeywords"] = is_keywords
+            normalized["question_is"] = question
             # Keep the Icelandic words too: value labels are Icelandic ("fluttu" ~ "Aðfluttir").
             try:
                 icelandic = normalize_question(question)
@@ -559,7 +712,7 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
     errors = []
     for choice in ranked:
         table = find_table(choice["url"])
-        selections, notes = build_selections(normalized, table)
+        selections, notes, summed = build_selections(normalized, table)
         try:
             try:
                 result = query_table(table["url"], selections, max_cells=MAX_CELLS)
@@ -580,6 +733,12 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
     timings["px_query"] = round(time.time() - start - sum(timings.values()), 2)
 
     rows = data_rows(result, table)
+    totals = sum_rows(result, table, summed)
+    for total in totals:
+        unit = guess_unit([total["label"]])
+        rows.append(f"SAMTALS – {total['label']} = {total['value']}" + (f" ({unit})" if unit else ""))
+    if totals:
+        notes.append("Notaðu SAMTALS-línurnar til að svara; þær eru summa línanna hér að ofan.")
     chosen_selections = selection_text(selections, table)
     try:
         answer = write_answer(question, table, chosen_selections, notes, rows,
@@ -609,7 +768,8 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
         "selections": chosen_selections,
         "notes": notes,
         "data": rows,
-        "data_table": data_table(result, table),
+        "data_table": {**data_table(result, table),
+                       "summary": [[t["label"], with_unit(t["value"], guess_unit([t["label"]]))] for t in totals]},
         "normalized": normalized,
         "timings": timings,
     }

@@ -747,3 +747,4 @@ h1 span {
 .data-table td.number { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .data-table th:last-child { text-align: right; }
 .data-time { margin: 0.5rem 0 0; font-size: 0.75rem; color: #7b8794; }
+.data-table tr.sum-row td { border-top: 2px solid #9fb3c4; background: #eef6f1; font-weight: 700; }

@@ -126,6 +126,14 @@ function renderDetails(data) {
       });
       body.append(tr);
     });
+    // Sums computed by the server (a whole year of a monthly table, an age range).
+    (table.summary || []).forEach(([label, value]) => {
+      const tr = element("tr", "sum-row");
+      const name = element("td", "", `Samtals: ${label}`);
+      name.colSpan = Math.max(1, table.columns.length - 1);
+      tr.append(name, element("td", "number", value));
+      body.append(tr);
+    });
     htmlTable.append(body);
     wrapper.append(htmlTable);
     details.append(wrapper);

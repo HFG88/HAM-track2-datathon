@@ -37,6 +37,18 @@ TOP_TABLES = 3
 # These are put first in the candidate list so the LLM always sees them.
 P = "https://px.hagstofa.is/pxis/api/v1/is/"
 MAIN_TABLES = [
+    # Specific topics first: "innflytjendur búa í X" is about immigrants, not population.
+    (("innflytj", "immigrant"),
+     [P + "Ibuar/mannfjoldi/3_bakgrunnur/Uppruni/MAN43005.px"]),
+    (("utlending", "erlendir rikisb", "erlendra rikisb", "rikisfang", "foreign", "nationalit"),
+     [P + "Ibuar/mannfjoldi/3_bakgrunnur/Rikisfang/MAN04001.px",
+      P + "Ibuar/mannfjoldi/3_bakgrunnur/Rikisfang/MAN04203.px"]),
+    (("medallaun", "laun ", "launin ", "launa ", "wage ", "wages", "salar", "earning"),
+     [P + "Samfelag/launogtekjur/1_laun/1_laun/VIN02002.px"]),
+    (("medalald", "average age", "mean age"),
+     [P + "Ibuar/mannfjoldi/1_yfirlit/Yfirlit_mannfjolda/MAN00102.px"]),
+    (("afli", "veidd", "veiddi", "thorsk", "fiskteg", "catch", " cod", "fish"),
+     [P + "Atvinnuvegir/sjavarutvegur/aflatolur/fiskveidisvaedi/SJA09005.px"]),
     (("mannfj", "ibua", "ibuar", "bjugg", "bua", "byr", "folksfj", "population", "people", "live"),
      [P + "Ibuar/mannfjoldi/1_yfirlit/Yfirlit_mannfjolda/MAN00000.px",
       P + "Ibuar/mannfjoldi/1_yfirlit/Yfirlit_mannfjolda/MAN00101.px",
@@ -48,7 +60,8 @@ MAIN_TABLES = [
       P + "Ibuar/buferlaflutningar/buferlaflinnanlands/buferlaflinnanlands/MAN01002.px",
       P + "Ibuar/buferlaflutningar/buferlaflinnanlands/buferlaflinnanlands/MAN01201.px"]),
     (("atvinnuleys", "atvinnulaus", "unemploy"),
-     [P + "Samfelag/vinnumarkadur/vinnumarkadsrannsokn/1_manadartolur/VIN00001.px",
+     [P + "Samfelag/vinnumarkadur/vinnumarkadsrannsokn/3_arstolur/VIN00921.px",
+      P + "Samfelag/vinnumarkadur/vinnumarkadsrannsokn/1_manadartolur/VIN00001.px",
       P + "Samfelag/vinnumarkadur/vinnumarkadsrannsokn/2_arsfjordungstolur/VIN00920.px"]),
     (("launavisit", "wage index"),
      [P + "Samfelag/launogtekjur/2_lvt/1_manadartolur/LAU04000.px"]),
@@ -72,6 +85,8 @@ time period and variables. Pick the table that contains the data needed to answe
 the question. Prefer tables that cover the years asked about and have the needed
 breakdown (e.g. sveitarfélag, kyn, aldur). Prefer current tables over old ones.
 If a table "inniheldur" (contains) a place named in the question, strongly prefer it.
+Tables marked "aðaltafla" are the main, official table for the topic: prefer them
+unless the question needs a breakdown or period they don't have.
 Prefer the main, general table for a topic. Avoid methodology or revision tables
 ("breytt aðferðafræði", "Ofmat") and historical tables unless the question asks for them.
 Answer only with JSON listing the best tables, best first: {"tables": [<number>, ...]}"""
@@ -98,7 +113,8 @@ def format_candidates(candidates):
         variables = ", ".join(v["name"] for v in candidate["variables"])
         period = f" [{candidate['period']}]" if candidate["period"] else ""
         places = f" | inniheldur: {', '.join(candidate['places'])}" if candidate.get("places") else ""
-        lines.append(f"{number}. {candidate['title']}{period} | {variables}{places}")
+        main = " | aðaltafla" if candidate.get("main") else ""
+        lines.append(f"{number}. {candidate['title']}{period} | {variables}{places}{main}")
     return "\n".join(lines)
 
 
@@ -167,8 +183,10 @@ def choose_tables(normalized, model=MODEL, candidates=CANDIDATES, top=TOP_TABLES
     """Return (ranked tables, all candidates, how they were chosen). Best table first."""
     tables = candidate_tables(normalized, candidates)
     options = describe_candidates(tables)
+    main_urls = {url for stems, urls in MAIN_TABLES for url in urls}
     for option, (table, _) in zip(options, tables):
         option["places"] = place_values(table, normalized)
+        option["main"] = table["url"] in main_urls
     if not options:
         return [], options, "no candidates"
     try:

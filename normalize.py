@@ -328,6 +328,10 @@ def normalize_question(question):
 
     phrases = [f"{a} {b}" for a, b in zip(keywords, keywords[1:])]
 
+    # Tourists are the foreigners in passenger tables ("Útlendingar alls").
+    if any(t.startswith(("ferdam", "tourist")) for t in tokens):
+        keywords.append("utlendingar")
+
     # "án vinnu/atvinnu/starfs" (without work) = unemployed.
     if re.search(r"\ban (vinnu|atvinnu|starfs|starfa)\b", cleaned):
         keywords.append("atvinnulausir")
