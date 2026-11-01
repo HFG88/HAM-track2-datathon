@@ -3,6 +3,30 @@ const questionInput = document.querySelector("#question");
 const status = document.querySelector("#status");
 const answer = document.querySelector("#answer");
 const submitButton = form.querySelector('button[type="submit"]');
+const progress = document.querySelector("#progress");
+const progressBar = progress.querySelector(".progress-bar");
+let progressTimer = null;
+
+// The server doesn't report progress, so the bar eases towards 90 % while waiting
+// (most answers take 5–25 s) and jumps to 100 % when the answer arrives.
+function startProgress() {
+  const started = Date.now();
+  let width = 0;
+  progress.hidden = false;
+  progressBar.style.width = "0%";
+  progressTimer = setInterval(() => {
+    width += (90 - width) * 0.04;
+    progressBar.style.width = `${width}%`;
+    const seconds = Math.round((Date.now() - started) / 1000);
+    status.textContent = `Leita að svari… ${seconds} s`;
+  }, 250);
+}
+
+function stopProgress() {
+  clearInterval(progressTimer);
+  progressBar.style.width = "100%";
+  setTimeout(() => { progress.hidden = true; }, 400);
+}
 
 document.querySelectorAll(".suggestion").forEach((suggestion) => {
   suggestion.addEventListener("click", () => {
@@ -14,8 +38,8 @@ document.querySelectorAll(".suggestion").forEach((suggestion) => {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   status.classList.remove("status--error");
-  const thorough = (document.querySelector('input[name="hamur"]:checked') || {}).value === "itarlegt";
-  status.textContent = thorough ? "Hugsa um svarið… (getur tekið allt að mínútu)" : "Leita að svari…";
+  status.textContent = "Leita að svari…";
+  startProgress();
   answer.replaceChildren();
   submitButton.disabled = true;
 
@@ -27,10 +51,7 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        spurning: questionInput.value,
-        hamur: (document.querySelector('input[name="hamur"]:checked') || {}).value || "venjulegt"
-      })
+      body: JSON.stringify({ spurning: questionInput.value })
     });
 
     if (!response.ok) {
@@ -51,6 +72,7 @@ form.addEventListener("submit", async (event) => {
     status.classList.add("status--error");
     status.textContent = `Ekki tókst að sækja svar: ${error.message}`;
   } finally {
+    stopProgress();
     submitButton.disabled = false;
   }
 });

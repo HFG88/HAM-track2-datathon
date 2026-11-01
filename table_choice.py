@@ -149,7 +149,7 @@ def candidate_tables(normalized, limit):
     return unique[:limit]
 
 
-def ask_llm(question, candidates, model=MODEL, top=TOP_TABLES, think=False, timeout=300):
+def ask_llm(question, candidates, model=MODEL, top=TOP_TABLES, timeout=180):
     """Return the 1-based numbers the LLM picked, best first."""
     prompt = f"Question: {question}\n\nTables:\n{format_candidates(candidates)}"
     response = requests.post(
@@ -169,9 +169,8 @@ def ask_llm(question, candidates, model=MODEL, top=TOP_TABLES, think=False, time
                 "required": ["tables"],
             },
             "stream": False,
-            # think=True lets Qwen reason before answering: slower, sometimes better.
-            "think": think,
-            "options": {"temperature": 0, "num_predict": 4000 if think else 40, "num_ctx": 8192},
+            "think": False,
+            "options": {"temperature": 0, "num_predict": 40, "num_ctx": 8192},
         },
         timeout=timeout,
     )
@@ -180,7 +179,7 @@ def ask_llm(question, candidates, model=MODEL, top=TOP_TABLES, think=False, time
     return [int(n) for n in numbers]
 
 
-def choose_tables(normalized, model=MODEL, candidates=CANDIDATES, top=TOP_TABLES, think=False):
+def choose_tables(normalized, model=MODEL, candidates=CANDIDATES, top=TOP_TABLES):
     """Return (ranked tables, all candidates, how they were chosen). Best table first."""
     tables = candidate_tables(normalized, candidates)
     options = describe_candidates(tables)
@@ -191,7 +190,7 @@ def choose_tables(normalized, model=MODEL, candidates=CANDIDATES, top=TOP_TABLES
     if not options:
         return [], options, "no candidates"
     try:
-        numbers = ask_llm(normalized["original"], options, model=model, top=top, think=think)
+        numbers = ask_llm(normalized["original"], options, model=model, top=top)
     except (requests.RequestException, ValueError, KeyError, TypeError) as error:
         return options[:top], options, f"fallback: {error}"
 

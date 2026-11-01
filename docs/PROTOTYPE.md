@@ -48,10 +48,6 @@ curl -X POST http://127.0.0.1:8000/spyrja_px_api -H "Content-Type: application/j
      -d '{"spurning": "Hver var verðbólgan á Íslandi árið 2024?"}'
 ```
 
-## Speed or quality
-
-The page has a switch and the API takes `"hamur"`: `hratt` (fast model for every step), `venjulegt` (default) or `itarlegt` (qwen3:32b thinks before choosing the table and writing; slowest).
-
 ## Settings (environment variables)
 
 | Variable | Default | What |

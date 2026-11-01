@@ -70,12 +70,6 @@
             </button>
           </div>
           <p class="input-hint" id="question-hint">Þú getur spurt á íslensku eða ensku — leitað er í gögnum Hagstofunnar.</p>
-          <fieldset class="mode-picker" aria-label="Hraði eða nákvæmni">
-            <legend>Svar:</legend>
-            <label><input type="radio" name="hamur" value="hratt"> Hratt</label>
-            <label><input type="radio" name="hamur" value="venjulegt" checked> Venjulegt</label>
-            <label><input type="radio" name="hamur" value="itarlegt"> Ítarlegt <small>(líkanið hugsar, tekur lengri tíma)</small></label>
-          </fieldset>
         </form>
 
         <div class="suggestions">
@@ -88,6 +82,7 @@
         </div>
       </section>
 
+      <div id="progress" class="progress" hidden aria-hidden="true"><div class="progress-bar"></div></div>
       <p id="status" class="status" role="status" aria-live="polite"></p>
       <section id="answer" class="answer-card" aria-live="polite" aria-label="Svar"></section>
 

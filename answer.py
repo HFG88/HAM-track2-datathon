@@ -50,21 +50,6 @@ REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "qwen3:30b-a3b")
 TABLE_MODEL = os.environ.get("TABLE_MODEL", MODEL)
 ANSWER_MODEL = os.environ.get("ANSWER_MODEL", MODEL)
 
-# Speed/quality modes the user can pick.
-FAST_MODEL = os.environ.get("FAST_MODEL", "qwen3:30b-a3b")
-MODES = {
-    # One fast model for everything: about twice as fast, slightly worse table choice.
-    "hratt": {"rewrite_model": FAST_MODEL, "table_model": FAST_MODEL, "answer_model": FAST_MODEL,
-              "think": False, "candidates": 10},
-    # The tested default: fast model for translation, qwen3:32b for table choice and answer.
-    "venjulegt": {"rewrite_model": REWRITE_MODEL, "table_model": TABLE_MODEL, "answer_model": ANSWER_MODEL,
-                  "think": False, "candidates": 10},
-    # qwen3:32b thinks before choosing the table and writing: slowest, for hard questions.
-    "itarlegt": {"rewrite_model": REWRITE_MODEL, "table_model": TABLE_MODEL, "answer_model": ANSWER_MODEL,
-                 "think": True, "candidates": 15},
-}
-DEFAULT_MODE = "venjulegt"
-
 # English breakdown names from normalize.py -> the Icelandic ones used in table variables.
 ENGLISH_BREAKDOWNS = {
     "sex": "kyn", "age": "aldur", "municipality": "sveitarfelag", "region": "landsvaedi",
@@ -88,17 +73,16 @@ FLOW_STEMS = ("farthega", "komur", "gistin", "gestakom", "afli", "faedd", "danir
               "flutning", "utflutn", "innflutn", "velta", "ferdir", "ferda ")
 
 ANSWER_PROMPT = """Þú ert Hagur, aðstoðarmaður Hagstofu Íslands.
-Svaraðu spurningu notandans á íslensku, stutt og skýrt, EINGÖNGU út frá gögnunum sem fylgja.
-- Nefndu tölurnar með einingu (t.d. fjöldi, %, krónur, vísitölustig) og tímabilinu sem þær eiga við.
-- Ef gögnin svara spurningunni ekki að fullu, segðu það hreint út og hvað vantar. Ekki giska.
-- Ef athugasemdir fylgja (t.d. að umbeðið ár sé ekki til), taktu það fram.
-- Ekki finna upp einingar: ef eining (t.d. tonn, kg, krónur, þúsundir) kemur ekki fram í
-  gögnunum eða heiti töflunnar, nefndu töluna án einingar.
-- Endaðu á línu sem byrjar á "Heimild:" með heiti töflunnar og slóðinni."""
+Svaraðu spurningunni á íslensku í EINNI stuttri setningu (mest tveimur), EINGÖNGU út frá gögnunum.
+- Setningin á að innihalda töluna (með einingu ef hún kemur fram), tímabilið og staðinn eða hópinn.
+- Ekki endurtaka spurninguna, ekki útskýra töfluna, ekki skrifa "samkvæmt gögnunum" eða fyrirvara.
+- Ef SAMTALS-línur eru í gögnunum, notaðu þær.
+- Ef athugasemd segir að tímabil eða staður finnist ekki, segðu það í stuttu máli og gefðu töluna sem til er.
+- Ekki finna upp einingar (tonn, kg, krónur …) sem koma ekki fram í gögnunum eða heiti töflunnar.
+- Ekki skrifa heimild eða slóð; hún er bætt við sjálfkrafa."""
 
 ENGLISH_INSTRUCTION = (
-    "The question is in English: write the answer in English, and start the "
-    'last line with "Source:" instead of "Heimild:".'
+    "The question is in English: answer in English, in one short sentence."
 )
 
 
@@ -291,10 +275,7 @@ def unmatched_place_notes(normalized, table, selections):
     for place in place_names(normalized):
         stem = place[:5]
         if stem not in selected_labels and stem not in title:
-            notes.append(
-                f"'{place}' fannst ekki í töflunni; tölurnar eiga EKKI sérstaklega við það, "
-                "heldur við heildina sem valin er. Segðu það skýrt í svarinu."
-            )
+            notes.append(f"„{place}“ fannst ekki í töflunni; tölurnar eiga við heildina.")
     return notes
 
 
@@ -516,7 +497,7 @@ def selection_text(selections, table):
 
 # ---------------------------------------------------------------- answer
 
-def ask_for_answer(context, system, model, timeout, think=False):
+def ask_for_answer(context, system, model, timeout):
     """One LLM call; returns the answer text (or the raw output if it isn't valid JSON)."""
     response = requests.post(
         OLLAMA_URL,
@@ -525,19 +506,18 @@ def ask_for_answer(context, system, model, timeout, think=False):
             "messages": [
                 {"role": "system", "content": system},
                 # "/no_think" is Qwen 3's switch for answering without reasoning first.
-                {"role": "user", "content": context + ("" if think else "\n/no_think")},
+                {"role": "user", "content": context + "\n/no_think"},
             ],
             # A JSON schema stops "thinking" models from writing out their reasoning.
-            # With think=True, Ollama returns the reasoning separately from the answer.
             "format": {
                 "type": "object",
                 "properties": {"svar": {"type": "string"}},
                 "required": ["svar"],
             },
             "stream": False,
-            "think": think,
-            "options": {"temperature": 0.2, "num_predict": 4000 if think else 350,
-                        "repeat_penalty": 1.15, "num_ctx": 8192},
+            "think": False,
+            "options": {"temperature": 0.2, "num_predict": 350, "repeat_penalty": 1.15,
+                        "num_ctx": 8192},
         },
         timeout=timeout,
     )
@@ -560,7 +540,7 @@ def echoes_rows(answer):
 
 
 def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MODEL,
-                 language="is", think=False, timeout=300):
+                 language="is", timeout=180):
     context = "\n".join([
         f"Dagsetning í dag: {date.today().isoformat()} (tölur fyrir liðin tímabil eru rauntölur, ekki spár)",
         f"Spurning: {question}",
@@ -572,11 +552,11 @@ def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MOD
         *rows,
     ])
     system = ANSWER_PROMPT + ("\n" + ENGLISH_INSTRUCTION if language == "en" else "")
-    answer = ask_for_answer(context, system, model, timeout, think=think)
+    answer = ask_for_answer(context, system, model, timeout)
     if echoes_rows(answer):
-        retry = ("\nEkki afrita gagnalínurnar. Skrifaðu eina eða tvær heilar setningar sem "
-                 "svara spurningunni með tölunum, og leggðu saman ef spurt er um heildina.")
-        answer = ask_for_answer(context, system + retry, model, timeout, think=think)
+        retry = ("\nEkki afrita gagnalínurnar. Skrifaðu eina heila setningu sem "
+                 "svarar spurningunni með tölunni.")
+        answer = ask_for_answer(context, system + retry, model, timeout)
     if echoes_rows(answer):
         raise ValueError("the model repeated the data rows instead of answering")
     return answer
@@ -670,6 +650,28 @@ def sum_rows(result, table, summed):
     ]
 
 
+def with_source(answer, table, language):
+    """Drop any source line the model wrote and add one standard line."""
+    kept = [
+        line for line in answer.strip().splitlines()
+        if not re.match(r"^\s*(heimild|source|slóð)\s*:", line, re.IGNORECASE)
+    ]
+    label = "Source" if language == "en" else "Heimild"
+    return "\n".join(kept).strip() + f"\n\n{label}: Hagstofa Íslands – {table['title']}"
+
+
+def plain_answer(result, table, notes, totals):
+    """The numbers as short lines ("Kópavogsbær: 40.286"), used when the LLM fails."""
+    shown = data_table(result, table)
+    lines = [note for note in notes]
+    for row in shown["rows"][:10]:
+        label = ", ".join(row[:-1]) or ", ".join(value for _, value in shown["fixed"])
+        lines.append(f"{label}: {row[-1]}" if label else row[-1])
+    for total in totals:
+        lines.append(f"Samtals {total['label']}: {with_unit(total['value'], guess_unit([total['label']]))}")
+    return "\n".join(lines)
+
+
 def has_numbers(result):
     """True if at least one returned cell is a number (PX uses "..", "-" etc. for missing)."""
     for item in result.get("data", []):
@@ -682,14 +684,9 @@ def has_numbers(result):
     return False
 
 
-def answer_question(question, mode=DEFAULT_MODE):
-    """Run the whole pipeline. Returns a dict with every step, for debugging and the frontend.
-
-    mode: "hratt" (fast), "venjulegt" (normal) or "itarlegt" (thorough, the model thinks).
-    """
-    settings = MODES.get(mode, MODES[DEFAULT_MODE])
-    rewrite_model, table_model = settings["rewrite_model"], settings["table_model"]
-    answer_model, think = settings["answer_model"], settings["think"]
+def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MODEL,
+                    answer_model=ANSWER_MODEL):
+    """Run the whole pipeline. Returns a dict with every step, for debugging and the frontend."""
     timings = {}
     start = time.time()
     language = detect_language(question)
@@ -727,8 +724,7 @@ def answer_question(question, mode=DEFAULT_MODE):
     normalized["language"] = language
     timings["rewrite"] = round(time.time() - start, 2)
 
-    ranked, candidates, how = choose_tables(normalized, model=table_model,
-                                            candidates=settings["candidates"], think=think)
+    ranked, candidates, how = choose_tables(normalized, model=table_model)
     timings["table_choice"] = round(time.time() - start - timings["rewrite"], 2)
     if not ranked:
         return {"question": question, "answer": "Ég fann enga töflu sem passar við spurninguna.",
@@ -763,28 +759,23 @@ def answer_question(question, mode=DEFAULT_MODE):
     for total in totals:
         unit = guess_unit([total["label"]])
         rows.append(f"SAMTALS – {total['label']} = {total['value']}" + (f" ({unit})" if unit else ""))
-    if totals:
-        notes.append("Notaðu SAMTALS-línurnar til að svara; þær eru summa línanna hér að ofan.")
     chosen_selections = selection_text(selections, table)
     try:
         answer = write_answer(question, table, chosen_selections, notes, rows,
-                              model=answer_model, language=language, think=think)
+                              model=answer_model, language=language)
         if not answer.strip():
             raise ValueError("empty answer")
         answer_by = "llm"
-        if "Heimild" not in answer and "Source" not in answer:
-            label = "Source" if language == "en" else "Heimild"
-            answer += f"\n\n{label}: {table['title']}, {table['url']}"
     except (requests.RequestException, ValueError) as error:
-        # The LLM is down or failed: show the numbers without prose rather than nothing.
-        answer = "\n".join(notes + rows[:10] + [f"Heimild: {table['title']}, {table['url']}"])
+        # The LLM is down or failed: list the numbers plainly rather than nothing.
+        answer = plain_answer(result, table, notes, totals)
         answer_by = f"template ({error})"
+    answer = with_source(answer, table, language)
     timings["answer"] = round(time.time() - start - sum(timings.values()), 2)
     timings["total"] = round(time.time() - start, 2)
 
     return {
         "question": question,
-        "mode": mode if mode in MODES else DEFAULT_MODE,
         "translation": translation,
         "language": language,
         "answer": answer,
@@ -811,20 +802,19 @@ def split_questions(text):
     return [p.strip() for p in parts if len(p.strip()) > 3][:MAX_QUESTIONS] or [text.strip()]
 
 
-def answer_questions(text, mode=DEFAULT_MODE):
+def answer_questions(text, **models):
     """Answer every question in the prompt; returns one result per question."""
-    return [answer_question(question, mode=mode) for question in split_questions(text)]
+    return [answer_question(question, **models) for question in split_questions(text)]
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("questions", nargs="*")
     parser.add_argument("--json", action="store_true", help="Print the full result as JSON")
-    parser.add_argument("--mode", choices=list(MODES), default=DEFAULT_MODE)
     args = parser.parse_args()
 
     for question in args.questions or ["Hvað búa margir í Kópavogi?"]:
-        result = answer_question(question, mode=args.mode)
+        result = answer_question(question)
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
             continue

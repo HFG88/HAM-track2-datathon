@@ -53,13 +53,13 @@ pip install -r requirements.txt
 Install Ollama from https://ollama.com, then:
 ```bash
 ollama pull qwen3:32b              # ~20 GB – chooses the table and writes the answer
-ollama pull qwen3:30b-a3b          # ~19 GB – translation and the "Hratt" mode
+ollama pull qwen3:30b-a3b          # ~19 GB – translates and reads the question (fast)
 ollama pull qwen3-embedding:0.6b   # ~0.6 GB – vector search
 ```
 These need a GPU machine (we used an NVIDIA GB10 with 128 GB). **On a laptop**, use small models instead (slower and less accurate, but it runs):
 ```bash
 ollama pull qwen3:4b
-export MODEL=qwen3:4b REWRITE_MODEL=qwen3:4b FAST_MODEL=qwen3:4b
+export MODEL=qwen3:4b REWRITE_MODEL=qwen3:4b
 ```
 If Ollama runs on another machine, point to it, e.g. through an SSH tunnel:
 ```bash
@@ -77,17 +77,8 @@ From the command line:
 ```bash
 python answer.py "Hvað búa margir í Kópavogi?"
 curl -X POST http://127.0.0.1:8000/spyrja_px_api -H "Content-Type: application/json" \
-     -d '{"spurning": "Hver var verðbólgan á Íslandi árið 2024?", "hamur": "venjulegt"}'
+     -d '{"spurning": "Hver var verðbólgan á Íslandi árið 2024?"}'
 ```
-
-### Speed or quality
-The page has a switch, and the API takes `"hamur"`:
-
-| Mode | What it does | Typical time |
-|---|---|---|
-| `hratt` | the fast model (qwen3:30b-a3b) for every step | ~5–10 s |
-| `venjulegt` (default) | fast model translates, qwen3:32b chooses and answers | ~7–25 s |
-| `itarlegt` | qwen3:32b **thinks** before choosing the table and writing, 15 candidates | ~30–90 s |
 
 ## Example questions
 
@@ -111,7 +102,7 @@ The page has a switch, and the API takes `"hamur"`:
 
 ```
 app.py               FastAPI server: POST /spyrja_px_api, serves the frontend at /
-answer.py            the pipeline: translation, selections, sums, answer, modes
+answer.py            the pipeline: translation, selections, sums, answer
 normalize.py         rule-based reading of a question (years, months, places, breakdowns, intent)
 question_router.py   language detection; llm_rewrite_en.py / llm_rewrite_is.py keyword rewriting
 table_search.py      BM25 + vector search over the table catalog
@@ -135,7 +126,6 @@ tests/, test_px_query.py   unit tests:  python -m unittest discover -s tests && 
 | `OLLAMA_HOST` | `localhost:11434` | where Ollama runs |
 | `MODEL` | `qwen3:32b` | table choice and answer |
 | `REWRITE_MODEL` | `qwen3:30b-a3b` | translation and keywords |
-| `FAST_MODEL` | `qwen3:30b-a3b` | everything in `hratt` mode |
 
 No API keys are needed: the PX-API is open and the models run locally.
 
