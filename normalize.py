@@ -148,7 +148,7 @@ INTENTS = [
     ("rank", ["mest", "flest", "haest", "laegst", "faest", "minnst", "staerst"]),
     ("compare", ["samanbur", "munur", "muninn", "midad"]),
     ("change", ["breyting", "breyttist", "haekk", "laekk", "aukning", "jokst",
-                "minnk", "voxt", "verdbolg", "chang", "increas", "decreas",
+                "minnk", "voxt", "verdbolg", "inflat", "chang", "increas", "decreas",
                 "fluctuat", "grew", "declin"]),
 ]
 

@@ -216,6 +216,11 @@ def build_selections(normalized, table):
             values = list(variable["values"])
         else:
             values = matching_values(variable, normalized)[:MAX_MATCHED_VALUES]
+            others = [c for c, l in zip(variable["values"], variable["valueTexts"]) if not is_total(l)]
+            if len(others) < len(variable["values"]) and set(others) <= set(values):
+                # The word matches every part ("börn" ~ "Börn giftra/ógiftra mæðra"),
+                # so it doesn't narrow anything down: use the total.
+                values = []
             if not values:
                 values = [default_value(variable, normalized["intent"])]
         selections[code] = values
@@ -267,23 +272,14 @@ def selection_text(selections, table):
 
 # ---------------------------------------------------------------- answer
 
-def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MODEL,
-                 language="is", timeout=180):
-    context = "\n".join([
-        f"Spurning: {question}",
-        f"Tafla: {table['title']}",
-        f"Slóð: {table['url']}",
-        f"Valdar víddir: {selections_text}",
-        *(f"Athugasemd: {note}" for note in notes),
-        "Gögn:",
-        *rows,
-    ])
+def ask_for_answer(context, system, model, timeout):
+    """One LLM call; returns the answer text (or the raw output if it isn't valid JSON)."""
     response = requests.post(
         OLLAMA_URL,
         json={
             "model": model,
             "messages": [
-                {"role": "system", "content": ANSWER_PROMPT + ("\n" + ENGLISH_INSTRUCTION if language == "en" else "")},
+                {"role": "system", "content": system},
                 # "/no_think" is Qwen 3's switch for answering without reasoning first.
                 {"role": "user", "content": context + "\n/no_think"},
             ],
@@ -311,6 +307,33 @@ def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MOD
             return body[:body.rfind(".") + 1] or body
         # Some Qwen builds still write their reasoning; keep only what follows it.
         return text.split("</think>")[-1].strip()
+
+
+def echoes_rows(answer):
+    """True if the model copied the data lines ("Ár: 2023 | Kyn: … → … = 1311") instead of answering."""
+    return "→" in answer and answer.count("|") >= 2
+
+
+def write_answer(question, table, selections_text, notes, rows, model=ANSWER_MODEL,
+                 language="is", timeout=180):
+    context = "\n".join([
+        f"Spurning: {question}",
+        f"Tafla: {table['title']}",
+        f"Slóð: {table['url']}",
+        f"Valdar víddir: {selections_text}",
+        *(f"Athugasemd: {note}" for note in notes),
+        "Gögn:",
+        *rows,
+    ])
+    system = ANSWER_PROMPT + ("\n" + ENGLISH_INSTRUCTION if language == "en" else "")
+    answer = ask_for_answer(context, system, model, timeout)
+    if echoes_rows(answer):
+        retry = ("\nEkki afrita gagnalínurnar. Skrifaðu eina eða tvær heilar setningar sem "
+                 "svara spurningunni með tölunum, og leggðu saman ef spurt er um heildina.")
+        answer = ask_for_answer(context, system + retry, model, timeout)
+    if echoes_rows(answer):
+        raise ValueError("the model repeated the data rows instead of answering")
+    return answer
 
 
 def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MODEL,
