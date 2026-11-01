@@ -4,7 +4,6 @@ The normaliser only describes the question. It never maps anything to PX codes,
 because that needs the metadata of the selected table.
 """
 
-import difflib
 import json
 import re
 import sys
@@ -17,7 +16,7 @@ CATALOG_PATH = Path(__file__).parent / "local" / "catalog-full.json"
 
 
 class QuestionError(ValueError):
-    """The question could not be understood, e.g. because of heavy misspelling."""
+    """The question has no recognizable topic to search for."""
 
 
 # Words that say nothing about which table or values are wanted.
@@ -42,6 +41,26 @@ STOPWORDS = {
     "eg", "thu", "hann", "hun", "thad", "vid", "their", "thaer", "thau", "theirra",
     # country-wide words that match too many tables
     "islandi", "island", "landinu", "tolur", "tolum",
+}
+ENGLISH_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by",
+    "did", "do", "does", "for", "from", "had", "has", "have", "he", "her",
+    "hers", "him", "his", "how", "i", "if", "in", "into", "is", "it", "its",
+    "of", "on", "or", "our", "ours", "she", "that", "the", "their", "theirs",
+    "them", "there", "these", "they", "this", "those", "through", "to", "us",
+    "was", "we", "were", "what", "when", "where", "which", "who", "whom",
+    "why", "will", "with", "you", "your", "yours", "one", "ones",
+    "many", "much", "most", "more", "least", "few", "several", "some",
+    "year", "years", "annual", "annually", "last", "latest", "current", "now",
+    "first", "second", "third", "fourth",
+}
+ENGLISH_RECOGNITION_WORDS = {
+    "what", "which", "who", "where", "when", "why", "how", "many", "much",
+    "show", "shows", "compare", "compared", "comparison", "change", "changed",
+    "increased", "decreased", "fluctuate", "fluctuated", "fluctuation",
+    "population", "people", "births", "deaths", "unemployment", "inflation",
+    "wages", "salary", "tourism", "tourists", "migration", "catch", "species",
+    "fish", "fishing", "capelin", "industry", "age", "sex", "region",
 }
 
 # Everyday words mapped to the words used in table titles.
@@ -72,6 +91,8 @@ MONTHS = {
     "januar": "01", "februar": "02", "mars": "03", "april": "04",
     "mai": "05", "juni": "06", "juli": "07", "agust": "08",
     "september": "09", "oktober": "10", "november": "11", "desember": "12",
+    "january": "01", "february": "02", "march": "03", "may": "05",
+    "june": "06", "july": "07", "august": "08", "october": "10",
 }
 MONTH_ABBREVIATIONS = {
     "jan": "01", "feb": "02", "mar": "03", "apr": "04", "jun": "06", "jul": "07",
@@ -83,9 +104,14 @@ NUMBER_WORDS = {
     "thrir": 3, "fjogur": 4, "fjorir": 4, "fimm": 5, "sex": 6, "sjo": 7,
     "atta": 8, "niu": 9, "tiu": 10,
 }
+ENGLISH_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
 ORDINAL_WORDS = {
     "fyrsta": 1, "fyrsti": 1, "annar": 2, "annan": 2, "odrum": 2, "annars": 2,
     "thridja": 3, "thridji": 3, "fjorda": 4, "fjordi": 4,
+    "first": 1, "second": 2, "third": 3, "fourth": 4,
 }
 
 # Token prefixes that say the question wants a breakdown by that dimension.
@@ -99,6 +125,13 @@ BREAKDOWNS = {
     "faedingarland": ["faedingarland"],
     "menntun": ["menntun"],
     "atvinnugrein": ["atvinnugrein"],
+    "sex": ["gender"],
+    "age": ["age"],
+    "municipality": ["municipal"],
+    "region": ["region", "regional"],
+    "nationality": ["nationality"],
+    "education": ["education"],
+    "industry": ["industry"],
 }
 
 MEASURES = {
@@ -106,6 +139,8 @@ MEASURES = {
     "kronur": ["kronur", "kronum", "krona", "kr", "isk"],
     "visitala": ["visitol", "visital"],
     "fjoldi": ["fjoldi", "fjolda"],
+    "percentage": ["percent", "percentage", "share", "proportion"],
+    "currency": ["currency", "kr", "isk"],
 }
 
 # Checked in this order: "Hvaða sveitarfélag hækkaði mest?" is a rank question.
@@ -113,7 +148,8 @@ INTENTS = [
     ("rank", ["mest", "flest", "haest", "laegst", "faest", "minnst", "staerst"]),
     ("compare", ["samanbur", "munur", "muninn", "midad"]),
     ("change", ["breyting", "breyttist", "haekk", "laekk", "aukning", "jokst",
-                "minnk", "voxt", "verdbolg"]),
+                "minnk", "voxt", "verdbolg", "chang", "increas", "decreas",
+                "fluctuat", "grew", "declin"]),
 ]
 
 YEAR = r"(?:19|20)\d{2}"
@@ -133,14 +169,14 @@ def tokenize(text):
 def to_number(token):
     if token.isdigit():
         return int(token)
-    return NUMBER_WORDS.get(token)
+    return NUMBER_WORDS.get(token, ENGLISH_NUMBER_WORDS.get(token))
 
 
 def extract_time(cleaned, tokens):
     years = []
 
     # Ranges: 2020-2023, frá 2020 til 2023, milli 2020 og 2023
-    range_pattern = rf"({YEAR})\s*(?:-|–|—|til|og)\s*({YEAR})"
+    range_pattern = rf"({YEAR})\s*(?:-|–|—|til|og|to)\s*({YEAR})"
     for start, end in re.findall(range_pattern, cleaned):
         start, end = sorted((int(start), int(end)))
         years.extend(range(start, end + 1))
@@ -148,9 +184,9 @@ def extract_time(cleaned, tokens):
     years.extend(int(y) for y in re.findall(rf"\b{YEAR}\b", cleaned_without_ranges))
 
     this_year = date.today().year
-    if "i fyrra" in cleaned:
+    if "i fyrra" in cleaned or re.search(r"\blast year\b", cleaned):
         years.append(this_year - 1)
-    if re.search(r"\b(i ar|a thessu ari)\b", cleaned):
+    if re.search(r"\b(i ar|a thessu ari|this year)\b", cleaned):
         years.append(this_year)
 
     months = []
@@ -168,21 +204,23 @@ def extract_time(cleaned, tokens):
 
     relative = None
     for i, token in enumerate(tokens):
-        if token not in ("sidustu", "sidasta", "sidasti"):
+        if token not in ("sidustu", "sidasta", "sidasti", "last"):
             continue
         rest = tokens[i + 1:i + 3]
         count = to_number(rest[0]) if rest else None
         unit_word = rest[1] if count is not None and len(rest) > 1 else (rest[0] if rest else "")
         if token != "sidustu" and count is None:
             count = 1
-        if unit_word.startswith("arsfjord"):
+        if unit_word.startswith(("arsfjord", "quarter")):
             relative = {"last": count, "unit": "quarter"}
-        elif unit_word.startswith(("manud", "manad")):
+        elif unit_word.startswith(("manud", "manad", "month")):
             relative = {"last": count, "unit": "month"}
-        elif unit_word.startswith("ar"):
+        elif unit_word.startswith(("ar", "year")):
             relative = {"last": count, "unit": "year"}
 
-    if relative is None and not years and re.search(r"\b(nyjust|nyjast|nuverandi|nuna)", cleaned):
+    if relative is None and not years and re.search(
+        r"\b(nyjust|nyjast|nuverandi|nuna|latest|current|now)\b", cleaned
+    ):
         relative = "latest"
 
     return {
@@ -200,6 +238,7 @@ def is_time_token(token):
         or any(token.startswith(name) for name in MONTHS)
         or token.startswith("arsfjord")
         or token in ORDINAL_WORDS
+        or token in {"first", "second", "third", "fourth"}
     )
 
 
@@ -212,12 +251,15 @@ def find_prefixed(tokens, table):
 
 
 def extract_measure(cleaned, tokens):
-    if "%" in cleaned:
+    if "%" in cleaned or any(t in {"percent", "percentage", "share", "proportion"}
+                             for t in tokens):
         return "hlutfall"
     for name, prefixes in MEASURES.items():
         if any(t == p or (len(p) > 3 and t.startswith(p)) for t in tokens for p in prefixes):
             return name
     if re.search(r"\b(hversu|hve) (margir|margar|morg)\b", cleaned):
+        return "fjoldi"
+    if "number" in tokens or "count" in tokens:
         return "fjoldi"
     return None
 
@@ -229,7 +271,7 @@ def extract_intent(tokens):
     return "value"
 
 
-# Full word forms for the prefix lists above, so typos in them can be corrected.
+# Full word forms for the prefix lists above, so they count as recognized terms.
 EXTRA_WORDS = {
     "kyni", "kynjum", "aldri", "aldurs", "aldursflokkum", "sveitarfelogum",
     "sveitarfelagi", "landsvaedum", "landshlutum", "hverfum", "rikisfangi",
@@ -242,7 +284,7 @@ EXTRA_WORDS = {
 
 @lru_cache(maxsize=1)
 def vocabulary():
-    """All words we recognise: our own lists plus every word in the table titles."""
+    """Words used to decide whether a question contains a recognizable topic."""
     words = set(STOPWORDS) | set(SYNONYMS) | set(MONTHS) | set(MONTH_ABBREVIATIONS)
     words |= set(NUMBER_WORDS) | set(ORDINAL_WORDS) | EXTRA_WORDS
     words |= {w for synonyms in SYNONYMS.values() for w in synonyms}
@@ -253,44 +295,27 @@ def vocabulary():
 
 
 def is_inflection(word):
-    """True if the word is another ending of a known word, e.g. nordurlandi/nordurlands."""
+    """True if the word is another ending of a known word, e.g. atvinnuleysid/atvinnuleysi."""
+    if len(word) < 5:
+        return False
     prefix = word[:max(5, len(word) - 2)]
     return any(known.startswith(prefix) for known in vocabulary())
-
-
-def correct_word(word):
-    """Return the closest known word, or None if the word is known or too far off."""
-    if word.isdigit() or len(word) < 3 or word in vocabulary():
-        return None
-    if len(word) <= 3:
-        # Short words only get corrected to months and numbers ("mrs" -> "mars").
-        candidates = list(MONTHS) + list(MONTH_ABBREVIATIONS) + list(NUMBER_WORDS)
-        matches = difflib.get_close_matches(word, candidates, n=1, cutoff=0.75)
-        return matches[0] if matches else None
-    if is_inflection(word):
-        return None
-    matches = difflib.get_close_matches(word, vocabulary(), n=1, cutoff=0.8)
-    return matches[0] if matches else None
 
 
 def normalize_question(question):
     cleaned = clean(question)
     tokens = tokenize(cleaned)
 
-    corrections = {}
-    for token in dict.fromkeys(tokens):
-        corrected = correct_word(token)
-        if corrected:
-            corrections[token] = corrected
-    if corrections:
-        pattern = r"\b(" + "|".join(map(re.escape, corrections)) + r")\b"
-        cleaned = re.sub(pattern, lambda m: corrections[m.group(1)], cleaned)
-        tokens = tokenize(cleaned)
     time = extract_time(cleaned, tokens)
 
     keywords = []
     for token in tokens:
-        if token in STOPWORDS or token in NUMBER_WORDS or is_time_token(token):
+        if (
+            token in STOPWORDS
+            or token in ENGLISH_STOPWORDS
+            or token in NUMBER_WORDS
+            or is_time_token(token)
+        ):
             continue
         if len(token) < 2:
             continue
@@ -307,7 +332,10 @@ def normalize_question(question):
 
     # Unknown words such as place names are allowed, but at least one keyword
     # must be recognised, otherwise there is nothing to search for.
-    if not any(k in vocabulary() or is_inflection(k) for k in keywords + expanded):
+    if (
+        not any(k in vocabulary() or is_inflection(k) for k in keywords + expanded)
+        and not any(token in ENGLISH_RECOGNITION_WORDS for token in tokens)
+    ):
         raise QuestionError(
             "Ég skildi ekki spurninguna. Athugaðu stafsetninguna og reyndu aftur."
         )
@@ -319,10 +347,10 @@ def normalize_question(question):
         "phrases": phrases,
         "expanded": expanded,
         "time": time,
-        "breakdowns": find_prefixed(tokens, BREAKDOWNS),
+        "breakdowns": find_prefixed(tokens, BREAKDOWNS) + (["sex"] if "by sex" in cleaned else []),
         "measure": extract_measure(cleaned, tokens),
         "intent": extract_intent(tokens),
-        "corrections": corrections,
+        "corrections": {},
     }
 
 

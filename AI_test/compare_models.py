@@ -1,7 +1,7 @@
-"""Run the questions in spurningar.txt through llm_rewrite with a chosen model.
+"""Run the questions in spurningar.txt through llm_rewrite_is with a chosen model.
 
 Shows the keywords each model gives and how long it takes, so models can be
-compared without editing llm_rewrite.py. Run from the project root:
+compared without editing llm_rewrite_is.py. Run from the project root:
 
     python AI_test/compare_models.py --model qwen3:4b
     python AI_test/compare_models.py --model qwen3:4b --limit 10
@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from eval_search import load_spurningar  # noqa: E402
-from llm_rewrite import rewrite  # noqa: E402
+from llm_rewrite_is import rewrite  # noqa: E402
 from normalize import QuestionError, normalize_question  # noqa: E402
 
 

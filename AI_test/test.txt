@@ -1,4 +1,48 @@
-Ollama:
--hversu margir dóu árið 1999
-keywords dou = danir
+qwen:
 
+Hvað eru margir án vinnu?
+  Original keywords: ['an', 'vinnu']
+  ISKeywords: ['vinnuleysi', 'atvinnuleitendur'] 
+  ENKeywords: ['unemployment', 'jobseekers']
+
+
+Í hvaða sveitarfélögum féll nýting hótelherbergja mest utan sumarmánaða?
+  Original keywords: ['sveitarfelogum', 'fell', 'nyting', 'hotelherbergja', 'utan', 'sumarmanada']
+  ISKeywords: ['nýting', 'hótelherbergi'] 
+  ENKeywords: ['usage', 'hotel accommodation']
+
+Hvaða mánuðir sýna mestu toppa í skráningum og fylgir mynstrið komum um Keflavíkurflugvöll?
+  Original keywords: ['syndar', 'toppa', 'skraningum', 'fylgir', 'mynstrid', 'komu', 'keflavikurflugvoll']
+  ISKeywords: ['skráningarmánuður', 'flugvél'] 
+  ENKeywords: ['registration month', 'aircraft']
+
+Hve hátt hlutfall fyrirtækja sem stofnuð voru tiltekið ár var enn virkt eftir 5 ár, eftir atvinnugreinum?
+  Original keywords: ['thatta', 'hlutfall', 'fyrirtaekja', 'stofnud', 'tiltekid', 'virk', 'atvinnugreinum']
+  ISKeywords: ['stofnun', 'atvinnugrein'] 
+  ENKeywords: ['establishment', 'industry']
+
+hversu margir eru á lífi á íslandi árið 2026
+  Original keywords: ['lifi']
+  ISKeywords: ['lífi', 'þjóðskrá'] 
+  ENKeywords: ['population', 'national register']
+
+Í hvaða atvinnugreinum hefur launakostnaður á unna stund hækkað hraðast frá 2008?
+  Original keywords: ['atvinnugreinum', 'launakostnadur', 'unna', 'stund', 'haekkad', 'hradast']
+  ISKeywords: ['launakostnaður', 'atvinnugrein'] 
+  ENKeywords: ['wage costs', 'industry sector']
+
+Hvernig hefur skipting kjötframleiðslu milli lamba-, alifugla- og svínakjöts breyst?
+  Original keywords: ['skipting', 'kjotframleidslu', 'lamba', 'alifugla', 'svinakjots', 'breyst']
+  ISKeywords: ['kjötframleiðsla', 'skipting'] 
+  ENKeywords: ['meat production', 'proportion'] 
+
+Hvernig hefur afli einnar tegundar (t.d. loðnu) sveiflast milli ára?
+  Original keywords: ['afli', 'einnar', 'tegundar', 'lodnu', 'sveiflast', 'ara']
+  ISKeywords: ['afli', 'sveifsla'] 
+  ENKeywords: ['labor force', 'variation']
+
+How has the catch of one species (e.g. capelin) fluctuated from year to year?
+  ISKeywords: ['fiskaveður', 'ártæki'] 
+  ENKeywords: ['fishery', 'catch']
+
+  

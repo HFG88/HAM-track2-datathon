@@ -39,7 +39,7 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/"
 if "://" not in OLLAMA_HOST:  # the ollama CLI also accepts "host:port"
     OLLAMA_HOST = "http://" + OLLAMA_HOST
 OLLAMA_URL = OLLAMA_HOST + "/api/chat"
-MODEL = "llama3.2:3b"
+MODEL = "qwen3:8b"
 MAX_KEYWORDS = 5
 
 CATALOG_IS_PATH = Path(__file__).parent / "local" / "catalog-is.json"
