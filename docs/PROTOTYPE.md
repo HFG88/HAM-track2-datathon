@@ -1,5 +1,7 @@
 # Prototype: the whole pipeline (branch `prototype`)
 
+Visual overview with a diagram, a worked example and results: [prototype-overview.pdf](prototype-overview.pdf).
+
 A working end-to-end chatbot. Not perfect, but it answers real questions with real numbers from Hagstofa, with the source.
 
 ```
