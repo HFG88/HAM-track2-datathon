@@ -731,7 +731,19 @@ h1 span {
   }
 }
 
-.answer-details { margin-top: 1rem; font-size: 0.9rem; }
-.answer-details summary { cursor: pointer; font-weight: 600; }
-.answer-details pre { white-space: pre-wrap; font-size: 0.8rem; background: rgba(0,0,0,0.04); padding: 0.75rem; border-radius: 8px; overflow-x: auto; }
+.answer-details { margin-top: 1rem; font-size: 0.9rem; border: 1px solid rgba(0,0,0,0.08); border-radius: 12px; padding: 0.75rem 1rem; background: rgba(255,255,255,0.6); }
+.answer-details summary { cursor: pointer; font-weight: 600; color: #34495e; }
 .answer-question { margin: 1.25rem 0 0.25rem; font-size: 1rem; font-weight: 700; }
+.data-note { margin: 0.6rem 0; padding: 0.5rem 0.75rem; border-left: 3px solid #d39e00; background: #fff7e0; border-radius: 6px; font-size: 0.85rem; }
+.data-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0 0.5rem; }
+.data-chip { display: inline-flex; border: 1px solid #d5dde5; border-radius: 999px; overflow: hidden; font-size: 0.8rem; }
+.data-chip-name { background: #eef2f6; color: #52606d; padding: 0.15rem 0.55rem; }
+.data-chip-value { padding: 0.15rem 0.6rem; font-weight: 600; color: #1f2933; }
+.data-table-wrapper { overflow-x: auto; margin-top: 0.5rem; }
+.data-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.data-table th { text-align: left; background: #eef2f6; color: #34495e; font-weight: 600; padding: 0.4rem 0.7rem; border-bottom: 2px solid #d5dde5; }
+.data-table td { padding: 0.35rem 0.7rem; border-bottom: 1px solid #edf0f3; }
+.data-table tbody tr:nth-child(even) { background: #f8fafb; }
+.data-table td.number { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.data-table th:last-child { text-align: right; }
+.data-time { margin: 0.5rem 0 0; font-size: 0.75rem; color: #7b8794; }

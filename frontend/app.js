@@ -60,26 +60,16 @@ function renderResult(data, showQuestion) {
 
   const answerText = document.createElement("p");
   answerText.className = "answer-text";
-  answerText.textContent = data.svar;
+  // The link to the table is shown below, so drop raw URLs (also "[url](url)") from the text.
+  answerText.textContent = data.svar
+    .replace(/\s*\[https?:\/\/[^\]]*\]\(https?:\/\/[^)]*\)/g, "")
+    .replace(/[,;]?\s*\(?https?:\/\/\S+?\)?(?=\s|$)/g, "")
+    .trim();
   answerText.style.whiteSpace = "pre-line";
   answer.append(answerText);
 
   if (data.tafla && data.tafla.title) {
-    const details = document.createElement("details");
-    details.className = "answer-details";
-    const summary = document.createElement("summary");
-    summary.textContent = `Tafla: ${data.tafla.title} (${data.tafla.id})`;
-    details.append(summary);
-
-    const lines = [];
-    if (data["víddir"]) lines.push(`Valdar víddir: ${data["víddir"]}`);
-    (data.athugasemdir || []).forEach((note) => lines.push(`Athugasemd: ${note}`));
-    (data["gögn"] || []).forEach((row) => lines.push(row));
-    if (data["tími"]) lines.push(`Tími: ${data["tími"].total ?? "?"} s`);
-    const pre = document.createElement("pre");
-    pre.textContent = lines.join("\n");
-    details.append(pre);
-    answer.append(details);
+    answer.append(renderDetails(data));
   }
 
   if (data["töflu_slóð"]) {
@@ -91,4 +81,58 @@ function renderResult(data, showQuestion) {
     source.rel = "noopener";
     answer.append(source);
   }
+}
+
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+// The table, chosen dimensions, notes and data behind an answer, in a collapsible box.
+function renderDetails(data) {
+  const details = element("details", "answer-details");
+  details.open = true;
+  details.append(element("summary", "", `Gögn úr töflu ${data.tafla.id.replace(".px", "")}: ${data.tafla.title}`));
+
+  (data.athugasemdir || []).forEach((note) => details.append(element("p", "data-note", note)));
+
+  const table = data.gagnatafla;
+  if (table && table.rows && table.rows.length) {
+    if (table.fixed && table.fixed.length) {
+      const chips = element("div", "data-chips");
+      table.fixed.forEach(([name, value]) => {
+        const chip = element("span", "data-chip");
+        chip.append(element("span", "data-chip-name", name), element("span", "data-chip-value", value));
+        chips.append(chip);
+      });
+      details.append(chips);
+    }
+
+    const wrapper = element("div", "data-table-wrapper");
+    const htmlTable = element("table", "data-table");
+    const headRow = element("tr");
+    table.columns.forEach((name) => headRow.append(element("th", "", name)));
+    htmlTable.append(element("thead"));
+    htmlTable.tHead.append(headRow);
+    const body = element("tbody");
+    table.rows.forEach((row) => {
+      const tr = element("tr");
+      row.forEach((value) => {
+        // Numbers are right-aligned.
+        const isNumber = /^-?[\d.]+(,\d+)?$/.test(value);
+        tr.append(element("td", isNumber ? "number" : "", value));
+      });
+      body.append(tr);
+    });
+    htmlTable.append(body);
+    wrapper.append(htmlTable);
+    details.append(wrapper);
+  }
+
+  if (data["tími"] && data["tími"].total) {
+    details.append(element("p", "data-time", `Svarað á ${data["tími"].total.toFixed(1)} s`));
+  }
+  return details;
 }

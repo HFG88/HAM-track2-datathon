@@ -53,6 +53,7 @@ def to_response(result):
         "víddir": result.get("selections"),
         "athugasemdir": result.get("notes", []),
         "gögn": result.get("data", [])[:20],
+        "gagnatafla": result.get("data_table"),
         "tungumál": result.get("language"),
         "tími": result.get("timings"),
         "villa": result.get("error"),

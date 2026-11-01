@@ -266,6 +266,58 @@ def data_rows(result, table):
     return rows
 
 
+def format_number(value):
+    """Icelandic number format: 383726 -> 383.726, 6.8 -> 6,8. Non-numbers are kept as they are."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if number.is_integer() and "." not in str(value):
+        return f"{int(number):,}".replace(",", ".")
+    decimals = len(str(value).split(".")[1]) if "." in str(value) else 1
+    text = f"{number:,.{decimals}f}"
+    return text.replace(",", " ").replace(".", ",").replace(" ", ".")
+
+
+def data_table(result, table):
+    """The PX response as a table for the frontend.
+
+    Returns {"fixed": [[name, label], ...], "columns": [...], "rows": [[...], ...]}.
+    Dimensions with the same label in every row go to "fixed" (shown above the table),
+    so the table only has the columns that vary, plus the numbers.
+    """
+    labels = {
+        v["code"]: dict(zip(v["values"], v["valueTexts"]))
+        for v in table["metadata"]["variables"]
+    }
+    key_columns = [c for c in result["columns"] if c["type"] in ("d", "t")]
+    value_columns = [c for c in result["columns"] if c["type"] == "c"]
+    items = result["data"][:MAX_DATA_ROWS]
+    keyed = [
+        [labels.get(column["code"], {}).get(key, key).strip() for column, key in zip(key_columns, item["key"])]
+        for item in items
+    ]
+
+    varying = [i for i in range(len(key_columns)) if len({row[i] for row in keyed}) > 1]
+    fixed = [
+        [key_columns[i]["text"], keyed[0][i]]
+        for i in range(len(key_columns)) if i not in varying and keyed
+    ]
+    value_names = [column["text"] for column in value_columns]
+    if len(value_names) == 1:
+        value_names = ["Gildi"]  # the single value column is usually just the table title
+
+    rows = [
+        [row[i] for i in varying] + [format_number(v) for v in item["values"]]
+        for row, item in zip(keyed, items)
+    ]
+    return {
+        "fixed": fixed,
+        "columns": [key_columns[i]["text"] for i in varying] + value_names,
+        "rows": rows,
+    }
+
+
 def selection_text(selections, table):
     labels = {
         v["code"]: (v["text"], dict(zip(v["values"], v["valueTexts"])))
@@ -422,6 +474,7 @@ def answer_question(question, rewrite_model=REWRITE_MODEL, table_model=TABLE_MOD
         "selections": chosen_selections,
         "notes": notes,
         "data": rows,
+        "data_table": data_table(result, table),
         "normalized": normalized,
         "timings": timings,
     }
