@@ -62,7 +62,7 @@ function renderResult(data, showQuestion) {
   answerText.className = "answer-text";
   // The link to the table is shown below, so drop raw URLs (also "[url](url)") from the text.
   answerText.textContent = data.svar
-    .replace(/\s*\[https?:\/\/[^\]]*\]\(https?:\/\/[^)]*\)/g, "")
+    .replace(/\s*\[https?:\/\/[^\]]*\](\(https?:\/\/[^)]*\))?/g, "")
     .replace(/[,;]?\s*\(?https?:\/\/\S+?\)?(?=\s|$)/g, "")
     .trim();
   answerText.style.whiteSpace = "pre-line";

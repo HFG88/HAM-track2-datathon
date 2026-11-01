@@ -264,6 +264,31 @@ def shrink(selections, table):
 
 # ---------------------------------------------------------------- data -> text
 
+PERCENT_WORDS = ("hlutfall", "atvinnuleysi", "atvinnuthatttaka", "breyting", "prosent", "vextir", "hagvoxtur")
+
+
+def guess_unit(labels):
+    """The unit of a data row, guessed from its labels (the API doesn't send units).
+
+    Returns "%", "stig" (index points) or "" when unsure.
+    """
+    text = " ".join(clean(label) for label in labels)
+    if "%" in " ".join(labels) or any(word in text for word in PERCENT_WORDS):
+        return "%"
+    if "visitala" in text or "visitolu" in text:
+        return "stig"
+    return ""
+
+
+def row_labels(result, table, item):
+    labels = {
+        v["code"]: dict(zip(v["values"], v["valueTexts"]))
+        for v in table["metadata"]["variables"]
+    }
+    key_columns = [c for c in result["columns"] if c["type"] in ("d", "t")]
+    return [labels.get(c["code"], {}).get(key, key).strip() for c, key in zip(key_columns, item["key"])]
+
+
 def data_rows(result, table):
     """Turn the PX response into readable lines: 'Mánuður: 2024M03 | Liður: Ársbreyting, % = 6.8'."""
     labels = {
@@ -278,7 +303,9 @@ def data_rows(result, table):
             f"{column['text']}: {labels.get(column['code'], {}).get(key, key).strip()}"
             for column, key in zip(key_columns, item["key"])
         ]
-        values = [f"{column['text']} = {value}" for column, value in zip(value_columns, item["values"])]
+        unit = guess_unit(row_labels(result, table, item))
+        suffix = f" ({unit})" if unit else ""
+        values = [f"{column['text']} = {value}{suffix}" for column, value in zip(value_columns, item["values"])]
         rows.append(" | ".join(keys) + " → " + "; ".join(values))
     return rows
 
@@ -294,6 +321,15 @@ def format_number(value):
     decimals = len(str(value).split(".")[1]) if "." in str(value) else 1
     text = f"{number:,.{decimals}f}"
     return text.replace(",", " ").replace(".", ",").replace(" ", ".")
+
+
+def with_unit(value, unit):
+    """'5.1', '%' -> '5,1 %'. Missing values ('..') get no unit."""
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{format_number(value)} {unit}".strip()
 
 
 def data_table(result, table):
@@ -325,7 +361,7 @@ def data_table(result, table):
         value_names = ["Gildi"]  # the single value column is usually just the table title
 
     rows = [
-        [row[i] for i in varying] + [format_number(v) for v in item["values"]]
+        [row[i] for i in varying] + [with_unit(v, guess_unit(row)) for v in item["values"]]
         for row, item in zip(keyed, items)
     ]
     return {
